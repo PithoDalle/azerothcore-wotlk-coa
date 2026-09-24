@@ -382,6 +382,7 @@ void World::SetInitialWorldSettings()
     ///- Load the DBC files
     LOG_INFO("server.loading", "Initialize Data Stores...");
     LoadDBCStores(_dataPath);
+    sScriptMgr->OnAfterLoadDBCStores();
     DetectDBCLang();
 
     // Load cinematic cameras

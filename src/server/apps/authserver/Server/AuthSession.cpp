@@ -120,7 +120,8 @@ std::array<uint8, 16> VersionChallenge = { { 0xBA, 0xA3, 0x1E, 0x99, 0xA0, 0x0B,
 #define REALM_LIST_PACKET_SIZE 5
 
 uint8 constexpr ASCENSION_AUTH_MARKER = 0x08;
-uint16 constexpr ASCENSION_AUTH_CHALLENGE_SIZE = 0x0276;
+uint16 constexpr ASCENSION_AUTH_CHALLENGE_SIZE = 0x027B;
+uint16 constexpr ASCENSION_AUTH_CHALLENGE_TOTAL_SIZE = 634; // true total bytes on the wire; differs from the challenge->size field's own value
 
 bool IsAscensionAuthChallenge(sAuthLogonChallenge_C const* challenge)
 {
@@ -246,10 +247,11 @@ SocketReadCallbackResult AuthSession::ReadHandler()
     while (packet.GetActiveSize())
     {
         uint8 cmd = packet.GetReadPointer()[0];
+        LOG_INFO("server.authserver", "[DEBUG3] cmd=0x{:02X} active={}", cmd, packet.GetActiveSize());
         auto itr = Handlers.find(cmd);
         if (itr == Handlers.end())
         {
-            LOG_DEBUG("session", "Ignoring unsupported auth command 0x{:02X} with {} buffered bytes", cmd, packet.GetActiveSize());
+            LOG_INFO("server.authserver", "[DEBUG3] unsupported cmd 0x{:02X} with {} buffered bytes - resetting", cmd, packet.GetActiveSize());
             packet.Reset();
             break;
         }
@@ -267,11 +269,16 @@ SocketReadCallbackResult AuthSession::ReadHandler()
         if (cmd == AUTH_LOGON_CHALLENGE || cmd == AUTH_RECONNECT_CHALLENGE)
         {
             sAuthLogonChallenge_C* challenge = reinterpret_cast<sAuthLogonChallenge_C*>(packet.GetReadPointer());
-            size += challenge->size;
-            if (size > MAX_ACCEPTED_CHALLENGE_SIZE && !IsAscensionAuthChallenge(challenge))
+            if (IsAscensionAuthChallenge(challenge))
+                size = ASCENSION_AUTH_CHALLENGE_TOTAL_SIZE;
+            else
             {
-                CloseSocket();
-                return SocketReadCallbackResult::Stop;
+                size += challenge->size;
+                if (size > MAX_ACCEPTED_CHALLENGE_SIZE)
+                {
+                    CloseSocket();
+                    return SocketReadCallbackResult::Stop;
+                }
             }
         }
 

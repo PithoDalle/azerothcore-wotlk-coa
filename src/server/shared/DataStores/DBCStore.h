@@ -91,6 +91,46 @@ public:
         _indexTable.AsT[id] = t;
     }
 
+    // Grows the index table to at least `newSize` slots in one allocation.
+    // Callers that will insert many new sequential IDs via ReplaceEntry()
+    // should call this first with the highest ID + 1: ReplaceEntry() alone
+    // grows one slot at a time, so looping it directly over N new IDs is
+    // O(N^2) (reallocates+copies the whole table on every single row).
+    void EnsureCapacity(std::size_t newSize)
+    {
+        if (newSize <= _indexTableSize)
+            return;
+
+        typedef char* ptr;
+        ptr* newArr = new ptr[newSize];
+        memset(newArr, 0, newSize * sizeof(ptr));
+        memcpy(newArr, _indexTable.AsChar, _indexTableSize * sizeof(ptr));
+        delete[] reinterpret_cast<char*>(_indexTable.AsT);
+        _indexTable.AsChar = newArr;
+        _indexTableSize = newSize;
+    }
+
+    // Like SetEntry(), but does not delete the previous value at `id`.
+    // Use this to override an existing DBC row from outside the normal
+    // load path (e.g. mod-wxl-dbc) -- see that module's README for why.
+    void ReplaceEntry(uint32 id, T* t)
+    {
+        if (id >= _indexTableSize)
+        {
+            // Resize
+            typedef char* ptr;
+            std::size_t newSize = id + 1;
+            ptr* newArr = new ptr[newSize];
+            memset(newArr, 0, newSize * sizeof(ptr));
+            memcpy(newArr, _indexTable.AsChar, _indexTableSize * sizeof(ptr));
+            delete[] reinterpret_cast<char*>(_indexTable.AsT);
+            _indexTable.AsChar = newArr;
+            _indexTableSize = newSize;
+        }
+
+        _indexTable.AsT[id] = t;
+    }
+
     [[nodiscard]] uint32 GetNumRows() const { return _indexTableSize; }
 
     bool Load(char const* path) override
