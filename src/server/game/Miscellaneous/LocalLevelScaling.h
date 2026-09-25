@@ -136,6 +136,18 @@ inline std::uint8_t ViewLevelFor(Player const* viewer, Creature const* creature)
     return owner ? owner(viewer, creature) : 0;
 }
 
+/// The max health one character's version of one creature has, or zero when that character sees the
+/// authored creature. For effects worded as a share of "the creature's health", which the character
+/// reads off the health bar they are shown.
+using CreatureViewMaxHealthResolver = std::uint32_t (*)(Player const*, Creature const*);
+inline std::atomic<CreatureViewMaxHealthResolver> CreatureViewMaxHealthOwner{nullptr};
+
+inline std::uint32_t ViewMaxHealthFor(Player const* viewer, Creature const* creature)
+{
+    CreatureViewMaxHealthResolver const owner = CreatureViewMaxHealthOwner.load(std::memory_order_relaxed);
+    return owner ? owner(viewer, creature) : 0;
+}
+
 inline std::uint8_t ScaleCreatureLevel(std::uint8_t originalLevel, std::uint8_t playerLevel,
     std::uint8_t offset = 3)
 {
@@ -207,15 +219,23 @@ inline std::uint32_t RewardKeepPercent(std::uint32_t floorPercent, std::int32_t 
     return floorPercent + (100 - floorPercent) * sharePercent / 100;
 }
 
-// coa-gameplay-test summons every fixture creature into this phase, then gives it the level and the
-// maximum health its scenario declared. Creature scaling does not assign a level, it rebuilds the
+// coa-gameplay-test summons every fixture creature into its lane's phase, then gives it the level and
+// the maximum health its scenario declared. Creature scaling does not assign a level, it rebuilds the
 // creature through SelectLevel(), which recomputes maximum health from the template and throws that
 // declared state away. The lift cap made this visible: a fixture declared at level 80 on a level 11
 // template is rescaled down to level 16, and the hit the scenario was measuring kills it.
 //
 // A fixture is therefore left alone, unless its scenario asked for the opposite by declaring
 // "level_scaling": true on the creature - which only the scenario that tests scaling itself does.
+// FixturePhases holds every lane phase: FixturePhaseMask alone unless the harness runs several
+// lanes and sets their union through SetFixturePhases().
 inline constexpr std::uint32_t FixturePhaseMask = 1u << 30;
+inline std::atomic<std::uint32_t> FixturePhases{FixturePhaseMask};
+
+inline void SetFixturePhases(std::uint32_t phases)
+{
+    FixturePhases.store(phases, std::memory_order_relaxed);
+}
 
 inline std::mutex ScalableFixtureLock;
 inline std::unordered_set<std::uint64_t> ScalableFixtures;
@@ -236,7 +256,7 @@ inline void ForgetFixture(std::uint64_t guid)
 // outside a harness run.
 inline bool IsUnscaledFixture(std::uint32_t phaseMask, std::uint64_t guid)
 {
-    if (!(phaseMask & FixturePhaseMask))
+    if (!(phaseMask & FixturePhases.load(std::memory_order_relaxed)))
         return false;
 
     std::lock_guard<std::mutex> guard(ScalableFixtureLock);

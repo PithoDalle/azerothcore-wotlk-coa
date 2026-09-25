@@ -138,6 +138,7 @@ constexpr uint16 CMSG_SET_CAN_SEE_APPEARANCES = 0x06A3;
 constexpr uint16 SMSG_VANITY_COLLECTION_INFO = 0x06F7;
 constexpr uint16 SMSG_VANITY_COLLECTION_ADDED = 0x06F8;
 
+constexpr uint16 CMSG_QUERY_CUSTOM_STORE = 0x06B9;
 constexpr uint16 SMSG_QUERY_CUSTOM_STORE_RESULT = 0x06BA;
 constexpr std::size_t VANITY_STORE_RECORD_DWORDS = 16;
 constexpr uint16 SMSG_CHARACTER_ADVANCEMENT_ACTIVE_SPEC = 0x0725;
@@ -2228,6 +2229,7 @@ public:
         {
             validateResourceSpell(rule.RequiredAuraSpellId);
             validateResourceSpell(rule.ForbiddenAuraSpellId);
+            validateResourceSpell(rule.AmountSpellId);
             if (rule.PowerType >= MAX_POWERS)
             {
                 LOG_ERROR("coa",
@@ -2630,8 +2632,14 @@ public:
                     continue;
             }
 
-            player->ModifyPower(static_cast<Powers>(rule.PowerType),
-                rule.InternalAmount);
+            int32 amount = rule.InternalAmount;
+            if (rule.AmountSpellId)
+                if (SpellInfo const* amountSpell = sSpellMgr->GetSpellInfo(rule.AmountSpellId))
+                    if (amountSpell->Effects[EFFECT_0].Effect == SPELL_EFFECT_ENERGIZE &&
+                        amountSpell->Effects[EFFECT_0].MiscValue == rule.PowerType)
+                        amount = amountSpell->Effects[EFFECT_0].CalcValue(player);
+
+            player->ModifyPower(static_cast<Powers>(rule.PowerType), amount);
             changed = true;
         }
 
@@ -2967,6 +2975,9 @@ private:
         if (HarvestTimePreserves(player, spellInfo))
             return;
 
+        bool const requiresSoulInfusion = spellInfo->CasterAuraSpell == SPELL_REAPER_SOUL_INFUSION &&
+            player->HasAura(SPELL_REAPER_SOUL_INFUSION);
+
         uint32 spellId = spellInfo->Id;
         if (std::find(REAPER_ALL_SOUL_CONSUMERS.begin(),
                 REAPER_ALL_SOUL_CONSUMERS.end(), spellId) !=
@@ -2974,12 +2985,12 @@ private:
         {
             player->RemoveAurasDueToSpell(SPELL_REAPER_REAPED_SOUL);
             player->RemoveAurasDueToSpell(SPELL_REAPER_SOUL_INFUSION);
+            if (requiresSoulInfusion)
+                ApplyAscensionReaperSoulInfusionSpent(player);
             return;
         }
 
-        if (spellInfo->CasterAuraSpell == SPELL_REAPER_SOUL_INFUSION &&
-            player->HasAura(SPELL_REAPER_SOUL_INFUSION) &&
-            !WasAvoidedByEveryTarget(player, spell))
+        if (requiresSoulInfusion && !WasAvoidedByEveryTarget(player, spell))
         {
             player->CastSpell(player, SPELL_REAPER_SOUL_INFUSION_REMOVER, true);
             ApplyAscensionReaperSoulInfusionSpent(player);
@@ -3260,10 +3271,16 @@ public:
       return;
     }
 
-    std::shared_ptr<PlayerCollectionState> state =
-        std::make_shared<PlayerCollectionState>();
-    state->AccountId = player->GetSession()->GetAccountId();
-    LoadPlayerState(player, *state);
+    if (player->GetSession()->IsBot())
+    {
+      TakeLoginState(player);
+      InitializeRiding(player);
+      return;
+    }
+
+    std::shared_ptr<PlayerCollectionState> state = TakeLoginState(player);
+    if (!state)
+      state = LoadCollectionState(player);
 
     UnlockLocalAppearanceCatalog(player, *state);
 
@@ -3303,6 +3320,7 @@ public:
     {
       std::lock_guard lock(_stateMutex);
       _playerStates.erase(player->GetGUID().GetCounter());
+      _loginStates.erase(player->GetGUID().GetCounter());
     }
 
     {
@@ -3420,14 +3438,12 @@ public:
 
     void PrepareOwnedCompanionsBeforeMap(Player* player)
     {
-        if (!_clientDataLoaded || player->IsInWorld() || !player->GetSession()->PlayerLoading() ||
+        if (!_clientDataLoaded || player->GetSession()->IsBot() || player->IsInWorld() || !player->GetSession()->PlayerLoading() ||
             !ascensionCompatConfig.GetConfigValue<bool>(AscensionCompatConfig::LEARN_OWNED_COMPANIONS))
             return;
 
-        PlayerCollectionState state;
-        state.AccountId = player->GetSession()->GetAccountId();
-        LoadPlayerState(player, state);
-        std::vector<uint32> const spells = GetMissingOwnedCompanionSpells(player, state);
+        std::shared_ptr<PlayerCollectionState const> const state = LoginState(player);
+        std::vector<uint32> const spells = GetMissingOwnedCompanionSpells(player, *state);
         std::size_t learned = 0;
         for (uint32 spellId : spells)
         {
@@ -3526,11 +3542,7 @@ public:
         if (!_clientDataLoaded || player->IsInWorld() || !player->GetSession()->PlayerLoading())
             return;
 
-        PlayerCollectionState state;
-        state.AccountId = player->GetSession()->GetAccountId();
-        LoadPlayerState(player, state);
-
-        LearnOwnedBankSpells(player, state, true);
+        LearnOwnedBankSpells(player, *LoginState(player), true);
     }
 
     std::vector<uint32> GetMissingOwnedCompanionSpells(Player* player, PlayerCollectionState const& state) const
@@ -3950,6 +3962,32 @@ private:
     std::lock_guard lock(_stateMutex);
     auto itr = _playerStates.find(player->GetGUID().GetCounter());
     return itr != _playerStates.end() ? itr->second : nullptr;
+  }
+
+  std::shared_ptr<PlayerCollectionState> LoadCollectionState(Player *player) {
+    auto state = std::make_shared<PlayerCollectionState>();
+    state->AccountId = player->GetSession()->GetAccountId();
+    LoadPlayerState(player, *state);
+    return state;
+  }
+
+  std::shared_ptr<PlayerCollectionState> LoginState(Player *player) {
+    uint32 const guid = player->GetGUID().GetCounter();
+    {
+      std::lock_guard lock(_stateMutex);
+      if (auto itr = _loginStates.find(guid); itr != _loginStates.end())
+        return itr->second;
+    }
+
+    std::shared_ptr<PlayerCollectionState> state = LoadCollectionState(player);
+    std::lock_guard lock(_stateMutex);
+    return _loginStates.try_emplace(guid, state).first->second;
+  }
+
+  std::shared_ptr<PlayerCollectionState> TakeLoginState(Player *player) {
+    std::lock_guard lock(_stateMutex);
+    auto node = _loginStates.extract(player->GetGUID().GetCounter());
+    return node.empty() ? nullptr : std::move(node.mapped());
   }
 
   void LoadPlayerState(Player *player, PlayerCollectionState &state) {
@@ -4507,6 +4545,8 @@ private:
   std::mutex _stateMutex;
   std::unordered_map<uint32, std::shared_ptr<PlayerCollectionState>>
       _playerStates;
+  std::unordered_map<uint32, std::shared_ptr<PlayerCollectionState>>
+      _loginStates;
 };
 
 AscensionCollectionModels::Entry const* FindCollectionModel(uint32 creatureId)
@@ -4926,6 +4966,15 @@ public:
 
     if (AscensionCompatOpcodes::Dispatch(session, packet))
       return false;
+
+    if (opcode == CMSG_QUERY_CUSTOM_STORE)
+    {
+      WorldPacket empty(SMSG_QUERY_CUSTOM_STORE_RESULT, 32);
+      empty << "QUERY_CUSTOM_STORE_OK";
+      empty << uint32(0);
+      session->SendPacket(&empty);
+      return false;
+    }
 
     if (ascensionCompatConfig.GetConfigValue<bool>(
             AscensionCompatConfig::LOG_CONSUMED_PACKETS)) {
@@ -5880,10 +5929,42 @@ public:
   }
 };
 
+static bool IsAdventureModeTierAura(uint32 spellId)
+{
+    return spellId == 302053 || (spellId >= 302059 && spellId <= 302068 && (spellId - 302059) % 3 == 0) ||
+        (spellId >= 302600 && spellId <= 302882 && (spellId - 302600) % 3 == 0);
+}
+
+static bool IsAdventureModeMagicDifficultyAura(uint32 spellId)
+{
+    return spellId > 302055 && IsAdventureModeTierAura(spellId - 2);
+}
+
+static void ApplyAdventureModeDifficultyContracts(SpellInfo* info)
+{
+    if (!info || !IsAdventureModeMagicDifficultyAura(info->Id))
+        return;
+
+    for (SpellEffectInfo& effect : info->Effects)
+        if (effect.ApplyAuraName == SPELL_AURA_MOD_HEALING_DONE)
+            effect.ApplyAuraName = SPELL_AURA_MOD_HEALING_DONE_PERCENT;
+}
+
 void ApplyAscensionExperienceContracts(SpellInfo* info)
 {
     if (!info)
         return;
+
+    if (IsAdventureModeTierAura(info->Id))
+    {
+        uint32 const creatureKills = 1;
+        uint32 const quests = 2;
+        for (SpellEffectInfo& effect : info->Effects)
+            if (effect.ApplyAuraName == SPELL_AURA_MOD_XP_PCT && (effect.MiscValue & quests) &&
+                !(effect.MiscValue & creatureKills))
+                effect.ApplyAuraName = SPELL_AURA_MOD_XP_QUEST_PCT;
+        return;
+    }
 
     switch (info->Id)
     {
@@ -5892,6 +5973,7 @@ void ApplyAscensionExperienceContracts(SpellInfo* info)
         case 157353:
         case 818046:
         case 819046:
+        case 993943:
             for (SpellEffectInfo& effect : info->Effects)
                 if (effect.ApplyAuraName == SPELL_AURA_MOD_XP_PCT &&
                     (effect.MiscValue == 2 || effect.MiscValue == 8))
@@ -5932,6 +6014,7 @@ public:
         {
             ApplyAscensionChangelogSpellChanges(spellInfo);
             ApplyAscensionExperienceContracts(spellInfo);
+            ApplyAdventureModeDifficultyContracts(spellInfo);
             switch (spellInfo->Id)
             {
                 case 19743:
@@ -6421,10 +6504,24 @@ class spell_ascension_jailers_bargain : public AuraScript
         canBeRecalculated = false;
     }
 
+    void ApplySleepImmunity(AuraEffect const*, AuraEffectHandleModes)
+    {
+        GetTarget()->ApplySpellImmune(GetId(), IMMUNITY_MECHANIC, MECHANIC_SLEEP, true);
+    }
+
+    void RemoveSleepImmunity(AuraEffect const*, AuraEffectHandleModes)
+    {
+        GetTarget()->ApplySpellImmune(GetId(), IMMUNITY_MECHANIC, MECHANIC_SLEEP, false);
+    }
+
     void Register() override
     {
         DoEffectCalcAmount += AuraEffectCalcAmountFn(spell_ascension_jailers_bargain::CalculateAmount,
             EFFECT_0, SPELL_AURA_SCHOOL_ABSORB);
+        AfterEffectApply += AuraEffectApplyFn(spell_ascension_jailers_bargain::ApplySleepImmunity,
+            EFFECT_2, SPELL_AURA_MECHANIC_IMMUNITY, AURA_EFFECT_HANDLE_REAL);
+        AfterEffectRemove += AuraEffectRemoveFn(spell_ascension_jailers_bargain::RemoveSleepImmunity,
+            EFFECT_2, SPELL_AURA_MECHANIC_IMMUNITY, AURA_EFFECT_HANDLE_REAL);
     }
 };
 

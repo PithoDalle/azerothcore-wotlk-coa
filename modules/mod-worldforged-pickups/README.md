@@ -907,6 +907,256 @@ placement and its coordinates, the one placement it added that had no row is in 
 final guid, and the two rows removed on the walk are gone from their sheets (Deadwind Pass stands
 35 pickups, the zone below it 56).
 
+### The twenty-sixth pass: Silverpine Forest, paired marker by marker
+
+`2026_09_24_40_worldforged_silverpine_forest.sql` judges the zone's own page marker by marker,
+`2026_09_24_41_worldforged_silverpine_forest_records.sql` restores the two objects the page's
+markers name that this world never carried, and
+`2026_09_24_42_worldforged_silverpine_forest_drop_pins.sql` stands the three objects the zone's own
+drop listing names on the realm's own recorded spots. The zone is Silverpine Forest and its
+twenty-six areas (Ambermill, Beren's Peril, Bucklebree Farm, Deep Elem Mine, Fenris Isle and Fenris
+Keep, Lordamere Lake, Malden's Orchard, the North Tide's Hollow and Run, Olsen's Farthing, Pyrewood
+Village, Shadowfang Keep, the South Tide's Run, The Dawning Isles, The Dead Field, The Decrepit
+Ferry, The Great Sea, The Greymane Wall, The Ivar Patch, The Sepulcher and its Crypts, The Shining
+Strand, The Skittering Dark and Valgan's Field). The page lists **50 markers**, every one of them a
+worldforge item. **Forty-four of them stand in those areas**; the other six fall in the areas the
+world's own table gives to neighbours - Dandred's Fold, The Uplands, the Ruins of Alterac and the
+Lordamere Internment Camp, all four in the Alterac Mountains, and The Great Sea twice, off the
+coast - and belong to those zones' passes. Markers of other pages that land inside this zone's areas
+(Stolen Rot Hide Circlet on the Alterac Mountains page, Meat Wagon Small Claw and Adventurer's
+Lost Sack on the Tirisfal Glades page) are judged here, so the pass reads **47 markers** - and
+**one name is drawn twice**, so it judges **46 placements**. The zone holds **46 pickups**.
+
+* **one placement the map draws on two pages**: **Stolen Rot Hide Circlet** - this page's listing
+  at 798.0 173.2 and the Alterac Mountains page's listing at 798.4 167.2, 6.6 yd apart, both inside
+  The Dawning Isles. The realm's own record of the object agrees with the Alterac listing to 0.6 yd
+  and the pickup that stands there (guid 6941153, entry 90319) is 6.0 yd from this page's listing,
+  so it is one placement the map recorded twice, it stands where the realm had it, and nothing
+  moves.
+* **one placement is kept where it stands**: **Small Claw of the Meat Wagon** - the pickup
+  (guid 6940748, entry 90349) is 6.0 yd from this page's marker (1158.0 1896.8) and the realm's own
+  record for the object agrees with the pickup rather than with the mark, so the two plots are one
+  placement the map recorded twice and nothing moves.
+* **three markers stand farther out and are second placings of objects whose pickups already honour
+  a marker of their own in another zone**: **Drowned Adventurer** (entry 101911, 7,226 yd from its
+  Loch Modan pickup), **Forgotten Book of Healing** (99010, 6,405 yd) and **Light and Shadow Vol:
+  1** (100011, 7,669 yd). The realm's own dump saw each of the three in this zone within two yards
+  of the marker that names it, so the zone had a placing of its own, and one is added for each at
+  the height the realm's own client recorded: guids 6942539 (705.9 988.8 z 27.006, on the bed of
+  Lordamere Lake), 6942540 (-727.1 1534.8 z 17.696) and 6942541 (-21.8 1354.2 z 60.894). The
+  Drowned Adventurer's own record is the invisible placeholder (display 980926), which is what the
+  realm's record says stands there.
+* **five markers name an object this world never carried, and the realm's own client-cache record
+  holds each of them standing within two yards of its marker**. Each is restored field for field
+  from that record - entry, type, display, cast bar, size, its own lock and its own loot-table id -
+  on the realm's own sighting of it: **Ancient Priest Tome** (101912, display 255, guid 6942542 at
+  -195.3 921.6, 1.1 yd from the mark), **Codex of Divine Mending** (99018, display 184777, guid
+  6942543 at 770.3 1350.0, 1.3 yd), **Cold Crystal** (101914, display 2770, guid 6942544 at -164.5
+  778.8, 0.6 yd), **Shadow Portal** (111017, display 1048997, guid 6942545 at -167.3 770.4, 1.5 yd)
+  and **Sorcerer's Cache** (835958, display 336, guid 6942546 at -94.6 955.2, 1.1 yd). **No loot
+  row is written for any of them**: the item each held is recorded in no source in hand, as
+  everywhere else in these passes.
+* **two markers are restored by the file beside this one**: **The Law of Light**'s own record here
+  is a *second book of that name* - entry 111004, display 184795, cast bar 'Inspecting', size 1.00,
+  where the entry this world already carried (111000, display 184790) is the one the map plots in
+  Loch Modan, Darkshore and Westfall - and the realm's own client saw it 1.7 yd from this marker
+  (-376.529 1116.350 z 84.151); its loot row hands out the item the marker names, The Law of Light
+  (9200812), which the same-named Loch Modan placing already hands out. **Maddening Aura** (101913,
+  display 515662 - the shadow-leech orb the realm uses for it - cast bar 'Inspecting', size 1.00)
+  stood 1.7 yd from its own marker at -379.307 1659.130 z 12.179, in Pyrewood Village. No item of
+  that name is recorded in any source held, so no loot row is written. The same object is plotted
+  on the Redridge Mountains page too, where the realm's own dump sees it 1.2 yd from that marker;
+  that page's own pass left it among the markers whose object no item could be tied to, and it is
+  restored here for the Silverpine listing the realm's own record stands on.
+* **one marker is deliberately left out, and the marker's own description says why**: **Arcane
+  Crystal**'s description is *"Item that gives Arcane Cascade mystic enchant."* - that is Mystic
+  Scroll: Arcane Cascade (item 201595), and the Mystic Scroll family is outside this module's
+  scope. The realm's own records agree rather than contradict: both entries of that name it holds
+  (99503 and 680016) draw display 980926, the invisible placeholder, so what stood in the world
+  was the scroll's own sparkle and not a world object. This is also why the eighth and ninth
+  passes (Westfall, Duskwood) left that marker alone.
+* **one marker is the map's own drop listing, and it names four world objects**: **Worldforge
+  Drops (4 items)** over Fenris Isle (1003.5 706.1). Its description lists the items looted there
+  (Ravenous Eye, Gnoll Subjugator, Thule's Curse Parchment, Rot Hide Mantle) and the lootable world
+  objects it saw - **Gnoll Subdue Wand**, **Rot Hide Stash**, **Thule's Curse Parchment** and
+  **Cursed Fang Remains**. All four are this module's already, each with the display its own record
+  gives it and the loot row for the item its own pin names, and the realm's own records give each
+  its spot in this zone: **Gnoll Subdue Wand** (90312) at 1007.410 689.796 z 77.775, 16.8 yd from
+  the pin (guid 6942549); **Rot Hide Stash** (90313) at 991.098 695.872 z 63.341, 16.1 yd (guid
+  6942550) - this is that object's only row in the world, its own record naming no other zone; and
+  **Cursed Fang Remains** (90314) at 1020.430 732.173 z 59.395, 31.1 yd (guid 6942551). The fourth,
+  Thule's Curse Parchment, already has a marker of its own on the page and its pickup (guid
+  6941239) stands exactly on it, 2.4 yd from the realm's own recorded spot, so nothing is added
+  for it. Gnoll Subdue Wand and Cursed Fang Remains are the very objects the Loch Modan page's own
+  'Worldforge Drops (2 items)' listing names, and each already stands there on the realm's own
+  recorded spot for that listing (guids 6940556 and 6940934); nothing is carried across, and each
+  zone keeps its own listing's object.
+* **one row is removed**: **Meat Wagon Small Claw** (guid 6930016, entry 90349) stood at 1246.2
+  1938.0 in The Skittering Dark, 97 yd from any marker of its own name and with no record of the
+  realm's near it. The object itself is not lost - the same item's Tirisfal Glades placing (guid
+  6940748) and its Loch Modan placing (guid 6941103) both stand.
+* **nothing else moves.** Two pickups read 6 yd or more from the terrain the worldserver finds and
+  both heights stand: **Grimson Cloak** (guid 6940579, -43.0 yd against the terrain at Deep Elem
+  Mine) stands inside the mine on its own floor - the Copper Vein 18.9 yd away reads 107.5, the Tin
+  Vein 108.4 and the Silver Vein 108.4, against this row's 107.8, while the surface over the mine
+  reads 150.8, so the terrain reader is seeing the hilltop - and **Victim's Empty jar** (guid
+  6940904, -163.5 yd, on the bed of Lordamere Lake) at the height the realm's own record gives it,
+  12.5. Two more of the restored rows (Cold Crystal 6.5 yd over the surface, Ancient Priest Tome
+  6.1 yd) agree with the realm's own record of the object to within 1.1 yd.
+
+**How the numbers were checked.** Every marker of the zone's 46 was paired by hand against the
+map's own page and its own drop listing, and the three files were read back from the database row
+by row afterwards: **160 assertions, 0 failures** - seven templates and thirteen spawns field for
+field (the guid, entry, map, position, script and comment of each), the five loot rows, the removed
+row gone, and no object of the restored ones standing twice anywhere in the world. The files are
+idempotent and were applied twice to prove it. Re-running the pass's own verifier over the live
+world reads **46 pickups in the zone** against the page's 46 placements, **43 of the 46 honoured
+within 3 yd** by a pickup of their own object, the two left being Arcane Crystal (the scroll marker
+above) and the drop listing itself, and **1 pickup in the zone drawing the placeholder display** -
+Drowned Adventurer, which is what the realm's own record says stands there. Three pickups in the
+zone honour no marker of any page: the three objects the drop listing names, which is what a drop
+listing's objects are. The worldserver applies the files on boot and reads **99,482 gameobjects**,
+**2,536 worldforged pickups**, **1,798 pickup templates** and **1,750 loot rows**.
+
+### The placements and rotations authored in game: Silverpine Forest
+
+`2026_09_24_47_worldforged_silverpine_pass_authored.sql` is the zone walked by hand in the map
+editor once the pass above stood in the world, the same shape as the Elwynn, Redridge and Deadwind
+files: the editing project's **forty-six changesets**, one save each, read in the order they were
+written with the last write to a row winning. Every placement of the zone was gone over, and the
+file holds **25 rows moved and/or turned**, **13 rows removed** and **5 placements added**.
+Position and the rotation quaternion are written exactly as the editor emitted them, digit for
+digit, and the orientation column as the yaw that quaternion represents - the editor's own
+orientation column agreed with its quaternion on every row here, so there is nothing to reconcile.
+
+* **twenty-five rows were moved**, the furthest **Turtle Shell** (515379, guid 6940842) by **489.3
+  yd**, then **Sorcerer's Cache** (835958, guid 6942546) 152.5, **Siren's Wand** (517323, guid
+  6940291) 137.8, **Deadman's Dagger** (515385, guid 6940321) 60.4, **Dirt Covered Gown** (90325,
+  guid 6940807) 46.7, **Misplaced Pitchfork** (515224, guid 6940757) 29.7, **Boom Barrel** (95526,
+  guid 6940196) 29.4, **Thule's Curse Parchment** (90320, guid 6941239) 24.9, **Victim's Empty jar**
+  (90327, guid 6940904) 22.2 and, among the rest between 1.5 and 21.9 yd, the two restored objects
+  the walk keeps - **Ancient Priest Tome** (101912, guid 6942542, 17.4 yd) and **Cold Crystal**
+  (101914, guid 6942544, 17.4) - and the drop listing's **Rot Hide Stash** (90313, guid 6942550,
+  14.1). **Ten rows were also turned**, the largest **Grimson Cloak** (1345063, guid 6940579,
+  1.207 rad), **Siren's Wand** (0.908), **Dirt Covered Gown** (0.781), **Gilnean Crate** (90328,
+  guid 6940546, 0.541) and **Stolen Lordaeron Jewel** (90322, guid 6940049, 0.471).
+* **six of the thirteen rows removed are the objects the pass above had just restored**, taken out
+  on the walk because each is a Mystic Scroll's own prop and that family is outside this module's
+  scope: **Shadow Portal** (111017, guid 6942545), **The Law of Light** (111004, guid 6942547),
+  **Light and Shadow Vol: 1** (100011, guid 6942541), **Codex of Divine Mending** (99018, guid
+  6942543), **Forgotten Book of Healing** (99010, guid 6942540) and **Maddening Aura** (101913,
+  guid 6942548). Four of them pair, at another of their own listings, with the scroll the realm's
+  own loot pin beside them names: Shadow Portal with *Mystic Scroll: Shadow Reserves* 1.8 yd (its
+  Darkshore listing), Light and Shadow Vol: 1 with *Mystic Scroll: Light and Shadow* 3.2 yd (The
+  Barrens) and 3.8 yd (Westfall), Codex of Divine Mending with *Mystic Scroll: Promise of Renewal*
+  2.3 yd (Redridge Mountains) and The Law of Light with *Mystic Scroll: Long Arm of the Law* 2.1 yd
+  (The Barrens). The other two - Forgotten Book of Healing and Maddening Aura - have no item of any
+  kind recorded beside any of their listings in any source in hand, and nothing is written in their
+  place either.
+* **five of the other seven removed rows are the same objects placed again** where the editor put
+  them, on the guids the allocator gives them, each keeping the loot row its object already had:
+  **Old Shoulderpad** (517314, guid 6960022) at 1018.6 708.8 62.6, **Hidden Ring** (97100, guid
+  6960023) at 419.0 1843.2 12.6, **Well Kept Hatchet** (95946, guid 6960024) at 848.2 1874.9 2.9,
+  **Heavy Shovel** (515383, guid 6960025) at 1293.8 1963.7 22.9 and **A "Fishy" Staff** (95947,
+  guid 6960026) at 1183.6 1043.4 35.0.
+* **the last two are gone and placed nowhere else**: **Ivar's Femur** (90324, guid 6940663 at
+  1276.9 1284.1 53.8, the object whose item the realm's own worldforged catalogue lists at item
+  level 16) and **Rot Hide Supplies** (90317, guid 6940977 at 994.2 594.0 55.2). The zone's own
+  markers record both objects, and the walk leaves neither standing.
+* **nothing that is not this module's is swept in.** The same saves also move eighteen objects the
+  world itself owns around Ambermill - **Cozy Fire**, **Wooden Chair** and **High Back Chair** rows,
+  the **Ambermill Strongbox**, **Bruiseweed** twice and **Mageroyal** - and write **ten creature
+  rows**. Every one of them is left exactly as it stands, and the file's own header lists them, so
+  a reader can see what was deliberately left alone.
+
+**How the numbers were checked.** All 25 rewritten rows and the 5 added placements were read back
+from the live database afterwards, each against its own position, its rotation quaternion, the yaw
+that quaternion represents, its entry and its script, and the absence of all 13 removed guids:
+**91 assertions, none failing**. Read together with the marker pass's own check - **166 assertions**
+over the same database once the tables of the two files above are taken through this one's plan -
+the zone's rows are **257 assertions, none failing**. Every statement here is an UPDATE on a guid, a
+REPLACE on a guid the file allocates, or a DELETE on one that is gone, so the pass is idempotent.
+It leaves the realm standing **2,538 pickups over 1,639 distinct ids**, **1,805 pickup templates**,
+**13 templates on the display the placeholder prop uses** and **99,475 gameobjects** - thirteen
+rows fewer than the pass above left and five more, eight fewer in all.
+
+**The workbook was refreshed from the server, row by row.** `worldforged-items.xlsx` carries the
+zone's rows on its Silverpine Forest sheet; the 25 rows the editor touched and the 5 it placed
+again were rewritten from the live database - position, facing and teleport - marked complete and
+filled green, the five whose object moved to a new guid carry the guid the allocator gave it, and
+the eight rows the walk left empty are kept on the sheet and marked removed, so the markers the
+walk took out stay visible. The sheet stands **38 pickups, 30 of them authored in game**, and its
+Index row says the same.
+### The final authored pass: Duskwood, item by item
+
+`2026_09_25_48_worldforged_duskwood_pass_authored.sql` is the zone walked by hand in the map editor,
+read from the editing project's **58 changesets** (`pro2`, written on 2026-09-25), one save each, the
+last write to a row winning. The tract is Duskwood itself and the ten areas that stand inside it -
+Raven Hill, Raven Hill Cemetery, Darkshire, The Darkened Bank, Brightwood Grove, Addle's Stead,
+Beggar's Haunt, Vul'Gol Ogre Mound, Forlorn Rowe and Manor Mistmantle - and **48 pickups** stand in
+it when the walk is done: **39 placed by hand in this pass** (the 30 rows below and the 9 placements
+after them) and **9 that the earlier passes left standing**, each on the marker the realm map records
+for it. Position and the rotation quaternion are the editor's own, digit for digit, and the
+orientation column is written as the yaw that quaternion represents.
+
+* **30 rows of this module were moved and/or turned, 27 of them by more than half a yard.** The
+  furthest: **Sizzling Potion** (1345132, guid 6941088) 150.67 yd, out of the Westfall-side listing
+  it stood on and onto the Vul'Gol Ogre Mound spot the editor gave it; **Axe of the Frostmane**
+  (95514, 6940510) 115.73; **Catacombs Relic Torch** (90282, 6940226) 78.02; **Lantern of Endless
+  Sorrow** (254366, 6941115) 50.22; **Darkshire Grave** (90272, 6940393) 33.56; **Spare Bag** (95821,
+  6940709, the placing that hands out Lohgan's Best Bag) 26.40; **Catacomb Grave Dirt Pile** (90286,
+  6940603) 24.90; **Suspiciously Brown Discarded Pants** (95824, 6941180) 23.78; **Fallen Warrior's
+  Axe** (95942, 6940459) 19.56; **Silk Covered Spaulders** (95823, 6941083) 18.41; **Haren's Tankard**
+  (1345067, 6940361) 16.46; and sixteen more from **The Dark Soul** (95822, 6941212) at 14.01 yd down
+  to **Emerald Shard** 0.62.
+* **11 rows turned**, the largest **Defias Night Blade** (90274, guid 6940342) **3.051 rad** (174.8
+  deg), then **Sizzling Potion** 2.491, **Catacombs Relic Torch** 2.203 (126.2 deg), **Emerald
+  Shard** 1.025, **Darkest Night Ring** (6940309) 0.448, **Suspiciously Brown Discarded Pants**
+  0.333, **Nightwatch Circlet** (6940811) 0.301, **The Jitters** (6941215) 0.212 and three more below
+  a tenth of a radian.
+* **Three of the saves' own orientation columns disagree with the quaternion beside them**, and the
+  file says so at each row: **Catacomb Grave Dirt Pile** (6940224, column 1.7031 against 2.0029),
+  **Emerald Shard** (6940431, 0.9171 against 2.3663) and **Sharp Bone Necklace** (6930015, 2.2626
+  against 2.5623). The quaternion is the field the client draws the model with, so the quaternion is
+  what is written.
+* **14 markers were emptied by hand**, and no guid of them is left in the world: Distant Wanderer's
+  Pack (6940366), Emerald Shard (6940430), Grimtotem Totem (6940576), Holy Atal'ai Band (6940633),
+  Ice Beard's Furled Finger (6940516), Lost Mountaineer's Bow (6940722), Racing Goggles (6941285),
+  Resonite Band (6940952), Ritual Blade (6940705), Sharp Bone Necklace (6940905), Spear of Emerald
+  (6941122), Will in the Casket (6940223), Wood Pile (6940862) and Woven Ceremonial Belt (6941354).
+* **Eight of those fourteen stand again where the editor placed them, on guids this file allocates**,
+  each keeping the loot row its object already had - the row hangs on the object, not the placement:
+  **Spear of Emerald** (254369, guid 6960027), **Ritual Blade** (515438, 6960028), **Resonite Band**
+  (254230, 6960029), **Woven Ceremonial Belt** (254231, 6960030), **Distant Wanderer's Pack**
+  (254384, 6960031), **Lost Mountaineer's Bow** (95507, 6960033), **Will in the Casket** (90281,
+  6960034) and **Sharp Bone Necklace** (90285, 6960035).
+* **One placement is new rather than a re-placing.** The editor's save of 10:32:01 creates **Crimson
+  Blade** (254562, guid 6960032) at -11232.0 -886.6 in the zone, and the object is written whole, with
+  its comment naming the save that stands it.
+* **Six markers are left nowhere else**: **Emerald Shard** (90290, was 6940430 at -10922.0 -516.5),
+  **Ice Beard's Furled Finger** (95515, was 6940516 at -10691.8 -205.8), **Grimtotem Totem** (254227,
+  was 6940576 at -9999.4 -1067.5), **Holy Atal'ai Band** (254368, was 6940633 at -10728.4 256.3),
+  **Wood Pile** (90348, was 6940862 at -11192.0 -435.5) and **Racing Goggles** (515537, was 6941285 at
+  -10753.1 426.7).
+* **Two placements the zone's own sheet had missed are in it now**, both found by reading every
+  changeset row against the world: **Sharp Bone Necklace** (90285, guid **6930015**, Raven Hill
+  Cemetery), whose spawn row carries no `ScriptName` at all while its template carries
+  `worldforged_pickup`, and **Crimson Blade** (254562, guid **6960032**, Duskwood).
+* **Nothing that is not this module's is touched.** The same saves move two objects the world itself
+  owns - **Bruiseweed** (guid 207693) and **Mageroyal** (guid 207604) - and the file names both in its
+  header as deliberately left alone.
+
+**How the numbers were checked.** Every statement is an UPDATE on a guid, a REPLACE on a guid the
+file allocates, or a DELETE on a guid the editor deleted, so re-running it leaves the same rows; the
+file was applied to the live database and applied a second time to prove it. Afterwards every row was
+read back from the database one by one: **118 assertions, none failing** - each of the 30 moved rows
+against its position, its rotation quaternion, the yaw that quaternion represents, its entry and its
+script; the placement on guid 6930015 and each of the nine guids the file allocates, field for field;
+and the absence of all fourteen removed guids. The worldserver applies the file itself on boot
+(`Applying update "2026_09_25_48_worldforged_duskwood_pass_authored.sql"`), and the realm then reads
+**99,470 gameobjects**, **2,822 worldforged pickups** over **1,662 distinct ids** and **1,805 pickup
+templates**.
+
 ### The nineteenth pass: Dun Morogh and Coldridge Valley, paired marker by marker
 
 `2026_09_23_16_worldforged_dun_morogh.sql` is the pass that moved the marker set itself, and

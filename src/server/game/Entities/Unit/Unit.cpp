@@ -4189,6 +4189,7 @@ int32 Unit::GetAscensionConditionalCombatModifier(Unit const* victim, SpellInfo 
 
         bool global = false;
         bool creature = false;
+        bool shadow = false;
         AscensionConditionalCombatModifier kind;
         switch (effect->GetMiscValue())
         {
@@ -4198,6 +4199,10 @@ int32 Unit::GetAscensionConditionalCombatModifier(Unit const* victim, SpellInfo 
             case ASCENSION_STATE_GLOBAL_CRIT:
                 kind = ASCENSION_CONDITIONAL_CRIT_CHANCE;
                 global = true;
+                break;
+            case ASCENSION_STATE_MASKED_SHADOW_CRIT:
+                kind = ASCENSION_CONDITIONAL_CRIT_CHANCE;
+                shadow = true;
                 break;
             case ASCENSION_STATE_MASKED_AND_AUTO_CRIT:
                 kind = ASCENSION_CONDITIONAL_CRIT_CHANCE;
@@ -4236,7 +4241,8 @@ int32 Unit::GetAscensionConditionalCombatModifier(Unit const* victim, SpellInfo 
                 return false;
         }
 
-        if (kind != modifier || (!global && (!spellInfo || !effect->IsAffectedOnSpell(spellInfo))))
+        if (kind != modifier || (!global && (!spellInfo || !effect->IsAffectedOnSpell(spellInfo))) ||
+            (shadow && !(spellInfo->GetSchoolMask() & SPELL_SCHOOL_MASK_SHADOW)))
             return false;
 
         int32 condition = effect->GetMiscValueB();
@@ -9537,11 +9543,23 @@ uint32 Unit::SpellDamageBonusDone(Unit* victim, SpellInfo const* spellProto, uin
     return uint32(std::max(tmpDamage, 0.0f));
 }
 
+static bool IsAdventureModeDamageDoneAura(uint32 spellId)
+{
+    if (spellId == 302054)
+        return true;
+
+    if (spellId >= 302060 && spellId <= 302069)
+        return (spellId - 302060) % 3 == 0;
+
+    return spellId >= 302601 && spellId <= 302883 && (spellId - 302601) % 3 == 0;
+}
+
 float Unit::GetAscensionNormalTuningDamageMultiplier(Unit const* victim, uint32 schoolMask) const
 {
     // Copied aura 341 means damage against monsters (e.g. Frozen Waters 271942
-    // and Fire and Ice 1582385). Enable only the reviewed normal tuning records;
-    // aura 322 and the separately authored PvP tuning remain independent.
+    // and Fire and Ice 1582385). Enable only the reviewed normal tuning records
+    // and the first difficulty aura of each Adventure Mode tier; aura 322 and
+    // the separately authored PvP tuning remain independent.
     if (!victim || victim->IsCharmedOwnedByPlayerOrPlayer())
         return 1.0f;
 
@@ -9549,7 +9567,8 @@ float Unit::GetAscensionNormalTuningDamageMultiplier(Unit const* victim, uint32 
         [schoolMask](AuraEffect const* effect)
         {
             uint32 const id = effect->GetId();
-            return id >= 887000 && id <= 887090 && (effect->GetMiscValue() & schoolMask);
+            bool const reviewed = (id >= 887000 && id <= 887090) || IsAdventureModeDamageDoneAura(id);
+            return reviewed && (effect->GetMiscValue() & schoolMask);
         });
 }
 
@@ -12731,6 +12750,8 @@ uint32 Unit::GetCreatureType() const
             return CREATURE_TYPE_DEMON;
         if (getClass() == CLASS_NECROMANCER && HasAura(500981))
             return CREATURE_TYPE_UNDEAD;
+        if (getClass() == CLASS_REAPER && HasAura(805718))
+            return CREATURE_TYPE_UNDEAD;
         ShapeshiftForm form = GetShapeshiftForm();
         SpellShapeshiftFormEntry const* ssEntry = sSpellShapeshiftFormStore.LookupEntry(form);
         if (ssEntry && ssEntry->creatureType > 0)
@@ -13699,7 +13720,7 @@ void Unit::ProcSkillsAndReactives(bool isVictim, Unit* target, uint32 procFlag, 
 
 void Unit::GetProcAurasTriggeredOnEvent(AuraApplicationProcContainer& aurasTriggeringProc, std::list<AuraApplication*>* procAuras, ProcEventInfo eventInfo)
 {
-    TimePoint now = std::chrono::steady_clock::now();
+    TimePoint now = GameTime::SteadyNow();
 
     auto processAuraApplication = [&](AuraApplication* aurApp)
     {
