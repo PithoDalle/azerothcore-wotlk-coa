@@ -22,6 +22,8 @@ enum RunemasterTravelSpells : uint32
     SPELL_ECHO_RUNE = 500270,
     SPELL_ECHO_RETURN = 500272,
     SPELL_WARPDAGGER = 500287,
+    SPELL_RUNESHROUD = 500288,
+    SPELL_SHROUDWALKER = 705563,
     SPELL_WARP_READY = 500289,
     SPELL_WARP_DAMAGE = 500495,
     SPELL_WARP = 500587,
@@ -83,7 +85,6 @@ void ClearTravel(Player* player, uint32 spell)
     Creature* marker = FindMarker(player, spell);
     ForgetMarker(player->GetGUID(), spell, guid);
     player->SetTemporarySpellReplacement(spell, 0);
-    player->removeSpell(ReturnSpell(spell), SPEC_MASK_ALL, true);
     player->RemoveAurasDueToSpell(TravelAura(spell), player->GetGUID());
     if (marker)
         marker->DespawnOrUnsummon();
@@ -212,7 +213,7 @@ class spell_ascension_runemaster_travel : public SpellScript
     bool Validate(SpellInfo const*) override
     {
         return ValidateSpellInfo({SPELL_ECHO_RETURN, SPELL_WARP, SPELL_WARP_READY, SPELL_WARP_VISUAL,
-            SPELL_WARP_SUMMON, SPELL_WARP_DAMAGE});
+            SPELL_WARP_SUMMON, SPELL_WARP_DAMAGE, SPELL_RUNESHROUD, SPELL_SHROUDWALKER});
     }
 
     SpellCastResult CheckTravel()
@@ -238,11 +239,20 @@ class spell_ascension_runemaster_travel : public SpellScript
         StartTravel(GetCaster()->ToPlayer(), SPELL_WARPDAGGER);
     }
 
+    void ApplyShroudwalker()
+    {
+        Player* player = GetCaster()->ToPlayer();
+        if (GetSpellInfo()->Id == SPELL_WARPDAGGER && player && player->HasAura(SPELL_SHROUDWALKER) &&
+            player->HasAura(SPELL_RUNESHROUD, player->GetGUID()))
+            player->RemoveSpellCooldown(SPELL_WARPDAGGER, true);
+    }
+
     void Register() override
     {
         OnCheckCast += SpellCheckCastFn(spell_ascension_runemaster_travel::CheckTravel);
         OnEffectHit += SpellEffectFn(spell_ascension_runemaster_travel::SummonEcho, EFFECT_0, SPELL_EFFECT_ANY);
         OnEffectHitTarget += SpellEffectFn(spell_ascension_runemaster_travel::SummonDagger, EFFECT_0, SPELL_EFFECT_ANY);
+        AfterCast += SpellCastFn(spell_ascension_runemaster_travel::ApplyShroudwalker);
     }
 };
 

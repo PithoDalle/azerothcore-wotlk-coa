@@ -21,6 +21,7 @@
 #include "DBCEnums.h"
 #include "Define.h"
 #include "EnumFlag.h"
+#include <bit>
 #include <cassert>
 
 float const GROUND_HEIGHT_TOLERANCE = 0.05f; // Extra tolerance to z position to check if it is in air or on ground.
@@ -211,6 +212,13 @@ constexpr uint32 ExpandLegacyClassMask(uint32 classMask)
             result |= uint32(1) << (classId - 1);
 
     return result;
+}
+
+// A quest for a single stock class is that class's own quest and stays closed to custom classes. A quest shared
+// by several stock classes restricts by gear family, so it also admits the custom classes of those families.
+constexpr uint32 ExpandLegacyQuestClassMask(uint32 classMask)
+{
+    return std::popcount(classMask) > 1 ? ExpandLegacyClassMask(classMask) : classMask;
 }
 
 // valid classes for creature_template.unit_class
@@ -2702,7 +2710,8 @@ enum LockType
     LOCKTYPE_SLOW_CLOSE            = 18,
     LOCKTYPE_FISHING               = 19,
     LOCKTYPE_INSCRIPTION           = 20,
-    LOCKTYPE_OPEN_FROM_VEHICLE     = 21
+    LOCKTYPE_OPEN_FROM_VEHICLE     = 21,
+    LOCKTYPE_WOODCUTTING           = 24
 };
 
 // CreatureType.dbc
@@ -3301,11 +3310,13 @@ enum SkillType
     SKILL_PET_WIND_SERPENT         = 656,
     SKILL_LANG_GUTTERSPEAK         = 673,
     SKILL_RIDING_KODO              = 713,
+    SKILL_WOODCUTTING              = 732,
     SKILL_RACIAL_TROLL             = 733,
     SKILL_RACIAL_GNOME             = 753,
     SKILL_RACIAL_HUMAN             = 754,
     SKILL_JEWELCRAFTING            = 755,
     SKILL_RACIAL_BLOODELF          = 756,
+    SKILL_WOODWORKING              = 757,
     SKILL_PET_EVENT_RC             = 758,
     SKILL_LANG_DRAENEI             = 759,
     SKILL_RACIAL_DRAENEI           = 760,
@@ -3353,6 +3364,8 @@ inline SkillType SkillByLockType(LockType locktype)
             return SKILL_FISHING;
         case LOCKTYPE_INSCRIPTION:
             return SKILL_INSCRIPTION;
+        case LOCKTYPE_WOODCUTTING:
+            return SKILL_WOODCUTTING;
         default:
             break;
     }

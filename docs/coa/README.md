@@ -38,12 +38,12 @@ protocol, data or process problem.
 ## Upgrading a server configured before the move
 
 - Move the settings of `etc/modules/mod_ascension_compat.conf` into `coa.conf`,
-  renaming its `AscensionCompat.*` keys to `CoA.*` (for example `CoA.LevelScaling`),
+  renaming its `AscensionCompat.*` keys to `CoA.*` (for example `CoA.QuestLevelScaling`),
   then delete `mod_ascension_compat.conf`. Installing the server removes the old
   `mod_ascension_compat.conf.dist`; delete it by hand if you install another way, or
   `acore.sh` copies it back to `mod_ascension_compat.conf`.
 - Rename environment overrides the same way: `AC_ASCENSION_COMPAT_<KEY>` becomes
-  `AC_CO_A_<KEY>` (for example `AC_CO_A_LEVEL_SCALING`).
+  `AC_CO_A_<KEY>` (for example `AC_CO_A_QUEST_LEVEL_SCALING`).
 - Add `Logger.coa=4,Console Server` to `worldserver.conf`, and rename any
   `Logger.module.ascension_compat`, `Logger.module.gameplay_test` or
   `Logger.module.highrisk` line to `Logger.coa`, `Logger.coa.gameplay_test` or
@@ -360,6 +360,14 @@ filter. Tooltip links remain documentation, not unconditional spellbook grants.
 This closes the reviewed acquisition/trigger gaps, not every outstanding mechanic
 in the broader class-completion audits.
 
+Templar Scarlet Training turns the next Argent Blade into Scarlet Hammer through the
+Scarlet Crusader aura (301172), which the client also uses for the button glow. The
+server lends Scarlet Hammer, and Vindication's Divine Fury, only while the swap is
+active. The client row still describes the retired Chastise version; when preparing a
+requested client update, run `apps/coa-spells/scarlet_crusader_tooltip.py --input
+<Spell.dbc> --output <candidate-Spell.dbc>`. It rewrites that row's English texts in a
+separate output and never packages or installs a client archive.
+
 ## Keeper's Scrolls
 
 A Keeper's Scroll blesses the zone it is used in, not the player: everyone in the
@@ -376,9 +384,9 @@ installs a client archive.
 
 ## Login and natural regeneration
 
-The copied client's `Extensions.dll` patches the ping timer at executable address
-`0x632DE5` from -30000 to -5000 milliseconds (DLL write at `0x10A689AC`). The inspected
-DLL SHA-256 is `f7b713095aab17a1e376f487290d4b7c4c18931635e4d91136d76db2592be8fa`.
+`Extensions.dll` patches the ping timer at executable address `0x632DE5` from -30000 to
+-5000 milliseconds (DLL write at `0x10A689AC`); the reconstructed DLL
+(`firstoni-dev/ascension-extensions-reconstruction`) makes the same write.
 Stock AzerothCore counts pings less than 27 seconds apart as overspeed; ordinary
 accounts are disconnected after exceeding `MaxOverspeedPings`, while GM permission
 23 bypasses that check. Local connections with `CoA.Enable = 1` accept
@@ -386,14 +394,48 @@ the five-second cadence with a one-second jitter margin. Faster sustained floodi
 still reaches the strike limit. Other connections retain the stock limit.
 
 For a realm dedicated to this client, set `CoA.AllowRemoteClients = 1`
-and restart worldserver. This also applies the configured plaintext world headers,
-extension opcode range, ping interval, Ascension spell-modifier packet layout and
-class-10 character creation mapping to remote connections. The default is `0`;
-password proofs, IP bans and packet size validation remain required.
-The client package's `Extensions.dll` must also carry the world-address fix to enter
-remote worlds; without it the DLL corrupts an active client hook when the world address
-is not on its built-in allowlist. Client binaries and patches are maintained outside
-this repository.
+and restart worldserver. This also applies the extension opcode range, ping interval,
+Ascension spell-modifier packet layout and class-10 character creation mapping to remote
+connections. The default is `0`; password proofs, IP bans and packet size validation
+remain required.
+
+The server talks to the client interface only through the DLL's native packets; it has
+no addon-message or chat-command channel. The reconstructed DLL authenticates with stock
+SRP6 and keeps the stock world-header cipher, which is the only header mode the server
+supports. Client binaries are maintained outside this repository.
+
+- `SMSG_REALM_INFO` (0x09BC) is sent at `CMSG_CHAR_ENUM`: realm id, ruleset, rates, eight
+  realm-kind gates, then the realm data path and the realm name as C strings, then the
+  add-ons flag. The data path stays empty: a non-empty one makes the DLL hot-swap client
+  data from `Data\<path>\`. The name is the authserver's `realmlist` name.
+- The Ascension realm list builds its cards from extra realm-list entries named
+  `realm!expansion!gamemode!image!unlocked!page!index!spell` in the last realm category,
+  and hides a realm without one. The authserver adds one offline entry per realm; see
+  `RealmCards.*` in `authserver.conf.dist`. `RealmCards.Category` must sort after every
+  realm's own category.
+- Wardrobe outfits: `CMSG_SAVE_APPEARANCE_OUTFIT` (0x069E, name and the category-indexed
+  appearance list) and `CMSG_DELETE_APPEARANCE_OUTFIT` (0x06A0) are answered with
+  `SAVE_/DELETE_APPEARANCE_OUTFIT_OK` or `_UNKNOWN` (0x069F / 0x06A1) and stored in
+  `character_appearance_outfit`; `SMSG_APPEARANCE_OUTFIT_INFO` (0x069D) lists them at login.
+  A saved outfit may name only collected appearances; names are 1-64 bytes, 100 per character.
+- `SMSG_UPDATE_CONFIGS` (0x058D) is sent once per login with every client setting; see
+  [client configuration](client-xp-config.md).
+- `SMSG_ACCOUNT_INFO` (0x09BB) is sent at login with the account's GM level and characters.
+- Help menu tickets use the ticket packets 0x0701-0x071E and the `.support` GM commands; see
+  [player tickets](player-tickets.md).
+- Requests the core session handles like stock ones, registered in its opcode table and let
+  through the CoA packet filter: the portrait menu's reset all dungeons (`CMSG_RESET_DUNGEONS`,
+  0x061F); the ghost frame's return to graveyard (`CMSG_PORT_GRAVEYARD`, 0x0544), which
+  moves a released ghost to its closest graveyard; and the flight's early landing request
+  (`CMSG_TAXI_REQUEST_EARLY_LANDING`, 0x05F2), which ends the flight at the next discovered
+  flight point on its route, so the later legs are neither flown nor paid; and the stable
+  window's delete button (`CMSG_STABLE_DELETE_PET`, 0x067C), which deletes a stabled pet and
+  answers `SMSG_STABLE_RESULT` 8, after which the client lists the stable again.
+- `CMSG_QUERY_INSTANCE_BINDS` (0x06FD), sent at every world entry, is answered with
+  `SMSG_QUERY_INSTANCE_BINDS_RESULT` (0x06FE): `QUERY_INSTANCE_BINDS_OK`, then the player's binds
+  that can still be reset as instance id, map and difficulty. The portrait menu's Reset Instances
+  list shows them, and `CMSG_RESET_INSTANCE` (0x058C: u32 map, u8 difficulty) resets one of them
+  like the stock reset: only outside a group or by its leader, and not while players are inside.
 
 The `gtOCTRegenHP`, `gtRegenHPPerSpt` and `gtRegenMPPerSpt` client files each contain
 3,200 single-float rows indexed by class and level. Their SQL overlay tables are empty,

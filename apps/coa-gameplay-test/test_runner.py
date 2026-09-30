@@ -175,6 +175,15 @@ class RunnerTests(unittest.TestCase):
             with self.subTest(missing=field), self.assertRaises(ValueError):
                 run.validate(invalid)
 
+    def test_cancel_mount_requires_player(self):
+        self.scenario['steps'].append({'action': 'cancel_mount', 'actor': 'caster'})
+        self.assertIs(run.validate(self.scenario), self.scenario)
+        for change in ({'actor': 'target'}, {'actor': 'absent'}, {'spell': 801384}):
+            invalid = copy.deepcopy(self.scenario)
+            invalid['steps'][-1].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                run.validate(invalid)
+
     def test_stunned_observation_accepts_units(self):
         for actor in ('caster', 'target'):
             scenario = copy.deepcopy(self.scenario)
@@ -208,6 +217,15 @@ class RunnerTests(unittest.TestCase):
                                        'spell': 997800, 'target': 'caster', 'target_pet': True, 'equals': 0})
         self.assertIs(run.validate(self.scenario), self.scenario)
         for change in ({'target_pet': 1}, {'target': 'target'}, {'metric': 'health'}, {'actor': 'target'}):
+            scenario = copy.deepcopy(self.scenario)
+            scenario['steps'][-1].update(change)
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                run.validate(scenario)
+
+    def test_cast_at_current_pet(self):
+        self.scenario['steps'].append({'action': 'cast', 'actor': 'caster', 'spell': 801707, 'target_pet': True})
+        self.assertIs(run.validate(self.scenario), self.scenario)
+        for change in ({'target_pet': 1}, {'target': 'target'}, {'actor': 'target'}):
             scenario = copy.deepcopy(self.scenario)
             scenario['steps'][-1].update(change)
             with self.subTest(change=change), self.assertRaises(ValueError):
@@ -306,6 +324,21 @@ class RunnerTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 run.validate(invalid)
 
+    def test_native_client_upload_actions(self):
+        self.scenario['steps'].extend([
+            {'action': 'specialization', 'actor': 'caster', 'id': 60},
+            {'action': 'advancement_rank', 'actor': 'caster', 'entry': 34422, 'rank': 1, 'refused': True},
+            {'action': 'apply_appearances', 'actor': 'caster', 'selection': {'56': 1451, '57': 0}},
+        ])
+        self.assertIs(run.validate(self.scenario), self.scenario)
+        for index, key, value in ((-3, 'actor', 'target'), (-3, 'id', 0), (-2, 'rank', 4), (-2, 'actor', 'target'),
+                                   (-2, 'refused', 1), (-1, 'selection', {'x': 1}), (-1, 'selection', {'0': 1}),
+                                   (-1, 'selection', [1451]), (-1, 'actor', 'target')):
+            invalid = copy.deepcopy(self.scenario)
+            invalid['steps'][index][key] = value
+            with self.assertRaises(ValueError):
+                run.validate(invalid)
+
     def test_cast_pushback_observation_requires_player(self):
         self.scenario['steps'].append(
             {'action': 'assert', 'actor': 'caster', 'metric': 'cast_pushback_ms', 'equals': 0})
@@ -335,6 +368,7 @@ class RunnerTests(unittest.TestCase):
         for change in (
             lambda s: s['steps'].append({'action': 'level_scaling_packet', 'actor': 'caster', 'value': 2}),
             lambda s: s['steps'].append({'action': 'level_scaling_packet', 'actor': 'target', 'value': 1}),
+            lambda s: s['steps'].append({'action': 'client_packet', 'actor': 'caster', 'opcode': 618, 'early': 0}),
             lambda s: s['steps'].append({'action': 'assert', 'actor': 'caster',
                                          'metric': 'sent_level', 'equals': 57}),
             lambda s: s['steps'].append({'action': 'assert', 'actor': 'target',
@@ -402,6 +436,8 @@ class RunnerTests(unittest.TestCase):
                                          'spell': 502329, 'equals': 1}),
             lambda s: s['steps'].append({'action': 'assert', 'actor': 'caster', 'metric': 'dynamic_object',
                                          'equals': 1}),
+            lambda s: s['steps'].append({'action': 'cast', 'actor': 'target', 'spell': 10308, 'target': 'caster',
+                                         'destination': {'x': 0, 'y': 0, 'z': 0}}),
             lambda s: s['steps'].append({'action': 'cast_charm', 'actor': 'target', 'spell': 802176}),
             lambda s: s['steps'].append({'action': 'gossip_hello', 'actor': 'caster', 'target': 'missing'}),
             lambda s: s['steps'].append({'action': 'attack', 'actor': 'caster'}),
@@ -434,6 +470,8 @@ class RunnerTests(unittest.TestCase):
                                          'entry': 36, 'equals': 0}),
             lambda s: s['steps'].append({'action': 'assert', 'actor': 'caster', 'metric': 'owned_creature_count',
                                          'entry': 36, 'caster': 'caster', 'equals': 0}),
+            lambda s: s['steps'].append({'action': 'assert', 'actor': 'caster',
+                                         'metric': 'owned_creature_weapon_damage_min', 'min': 1}),
             lambda s: s.update(steps=[{'action': 'wait', 'ms': 1}]),
             lambda s: s['steps'].insert(0, {'action': 'assert', 'actor': 'target', 'metric': 'health',
                                            'relative_to': 'missing', 'equals': 0}),

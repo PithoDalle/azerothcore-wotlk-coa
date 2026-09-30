@@ -109,7 +109,7 @@ struct ResourceGainRule
     std::uint8_t ChancePercent = 100;
 };
 
-inline constexpr std::array<ResourceGainRule, 187> ResourceGainRules =
+inline constexpr std::array<ResourceGainRule, 189> ResourceGainRules =
 {{
     {14, 524706, 524706, 800058, 1, ResourceMutation::AuraStacks,
         ResourceGainEvent::FirstSuccessfulHostileTarget},
@@ -449,7 +449,11 @@ inline constexpr std::array<ResourceGainRule, 187> ResourceGainRules =
     {22, 520175, 520175, 804455, 1, ResourceMutation::AuraStacks,
         ResourceGainEvent::EachSuccessfulDamagingHit, 92120},
     {22, 520702, 520707, 804455, 1, ResourceMutation::AuraStacks,
-        ResourceGainEvent::EachSuccessfulDamagingHit, 92120}
+        ResourceGainEvent::EachSuccessfulDamagingHit, 92120},
+    {22, 561284, 561284, 804455, 1, ResourceMutation::AuraStacks,
+        ResourceGainEvent::Cast, 92120},
+    {22, 561354, 561357, 804455, 1, ResourceMutation::AuraStacks,
+        ResourceGainEvent::Cast, 92120}
 }};
 
 struct NativePowerGainRule
@@ -465,7 +469,7 @@ struct NativePowerGainRule
     std::uint32_t AmountSpellId = 0;
 };
 
-inline constexpr std::array<NativePowerGainRule, 13> NativePowerGainRules =
+inline constexpr std::array<NativePowerGainRule, 16> NativePowerGainRules =
 {{
     {19, 0, 0, 3, 10, ResourceGainEvent::PeriodicDamageTick, 301253},
     {23, 704355, 704355, 6, 200,
@@ -479,6 +483,12 @@ inline constexpr std::array<NativePowerGainRule, 13> NativePowerGainRules =
     {30, 573316, 573319, 6, 150,
         ResourceGainEvent::FirstSuccessfulHostileTarget},
     {30, 573321, 573322, 6, 150,
+        ResourceGainEvent::FirstSuccessfulHostileTarget},
+    {30, 800172, 800172, 6, 150,
+        ResourceGainEvent::FirstSuccessfulHostileTarget},
+    {30, 502668, 502671, 6, 150,
+        ResourceGainEvent::FirstSuccessfulHostileTarget},
+    {30, 567531, 567532, 6, 150,
         ResourceGainEvent::FirstSuccessfulHostileTarget},
     {30, 801624, 801624, 6, 200,
         ResourceGainEvent::FirstSuccessfulHostileTarget, 0, 0, 359504},
@@ -502,7 +512,7 @@ struct ResourceCostRule
     std::uint8_t PreserveCostChancePercent = 0;
 };
 
-inline constexpr std::array<ResourceCostRule, 59> ResourceCostRules =
+inline constexpr std::array<ResourceCostRule, 65> ResourceCostRules =
 {{
     {14, 801904, 801904, 800058, 2, ResourceConsumption::Fixed,
         705137, 30},
@@ -569,7 +579,14 @@ inline constexpr std::array<ResourceCostRule, 59> ResourceCostRules =
     {24, 520751, 520751, 807533, 1, ResourceConsumption::None},
     {24, 572892, 572894, 807533, 1, ResourceConsumption::None},
     {24, 800818, 800818, 807533, 1, ResourceConsumption::None},
-    {24, 520019, 520019, 807533, 1, ResourceConsumption::Fixed}
+    {24, 520019, 520019, 807533, 1, ResourceConsumption::Fixed},
+
+    {22, 524853, 524853, 804455, 1, ResourceConsumption::All},
+    {22, 804435, 804435, 804455, 1, ResourceConsumption::All},
+    {22, 804438, 804438, 804455, 1, ResourceConsumption::All},
+    {22, 806203, 806203, 804455, 1, ResourceConsumption::All},
+    {22, 572417, 572417, 804455, 1, ResourceConsumption::All},
+    {22, 804503, 804503, 804455, 1, ResourceConsumption::All}
 }};
 }
 

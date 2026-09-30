@@ -10,6 +10,7 @@
 #include <algorithm>
 namespace AscensionSunCleric
 {
+constexpr uint32 SpellRangeAnywhere = 13;
 void ApplyContracts(SpellInfo* info)
 {
     if (!info || info->SpellFamilyName != 33)
@@ -71,7 +72,10 @@ void ApplyContracts(SpellInfo* info)
     if (id == 300350)
         info->Attributes |= SPELL_ATTR0_PASSIVE;
     if (id == 807058)
+    {
         info->Effects[0].TargetA = SpellImplicitTargetInfo(TARGET_UNIT_TARGET_ENEMY);
+        info->RangeEntry = sSpellRangeStore.LookupEntry(SpellRangeAnywhere);
+    }
     if (id == 704911)
     {
         info->Effects[0].TargetA = SpellImplicitTargetInfo(TARGET_UNIT_TARGET_ALLY);
@@ -80,8 +84,10 @@ void ApplyContracts(SpellInfo* info)
     if (id == Dawn)
     {
         dummy(0);
-        dummy(1);
         info->ProcCharges = 10;
+        info->Attributes &= ~SPELL_ATTR0_AURA_IS_DEBUFF;
+        info->Attributes &= ~SPELL_ATTR0_NO_AURA_CANCEL;
+        info->AttributesCu &= ~SPELL_ATTR0_CU_NEGATIVE;
     }
     if (id == SolarPower)
         dummy(1);
