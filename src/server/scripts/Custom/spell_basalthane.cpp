@@ -693,7 +693,13 @@ class spell_basalthane_inferno_trail : public SpellScript
 
             if (dmg)
                 Unit::DealDamage(caster, player, dmg, nullptr, SPELL_DIRECT_DAMAGE, SPELL_SCHOOL_MASK_FIRE, GetSpellInfo(), false);
-            caster->CastSpell(player, FlashBurnSpellFor(caster), true);
+            // Flash Burn (2108201-04) is TARGET_SRC_CASTER + TARGET_UNIT_SRC_AREA_ENEMY
+            // (200yd around the caster) in the DBC, so CastSpell(player, ...) would
+            // actually hit every player within 200yd regardless of the `player` arg,
+            // stacking it on the whole raid instead of just whoever got hit by the
+            // trail. AddAura bypasses the spell's own implicit targeting and applies
+            // (and stacks) it directly on just this player.
+            player->AddAura(FlashBurnSpellFor(caster), player);
         }
     }
 
@@ -950,12 +956,14 @@ public:
         // real kill logs where every raid member got it at the same instant Basalthane
         // entered combat. Inferno Trail's own Flash Burn application (further down in
         // this file) is untouched - this is a separate mechanism.
+        // Flash Burn (2108201-04) is TARGET_SRC_CASTER + TARGET_UNIT_SRC_AREA_ENEMY,
+        // 200yd around the caster - a SINGLE cast already hits every raid member in
+        // range, so this must never be looped per-player (that would stack it N times
+        // per pass instead of once).
         uint32 nowMs = uint32(GameTime::GetGameTimeMS().count());
         if (flashBurnOpenerApplied.insert(creature->GetGUID()).second)
         {
-            for (auto const& itr : creature->GetMap()->GetPlayers())
-                if (Player* player = itr.GetSource())
-                    creature->CastSpell(player, FlashBurnSpellFor(creature), true);
+            creature->CastSpell(creature, FlashBurnSpellFor(creature), true);
             flashBurnNextTick[creature->GetGUID()] = nowMs + FLASH_BURN_RAIDWIDE_TICK_MS;
         }
 
@@ -964,9 +972,7 @@ public:
         uint32& nextFlashBurnTick = flashBurnNextTick[creature->GetGUID()];
         if (nowMs >= nextFlashBurnTick)
         {
-            for (auto const& itr : creature->GetMap()->GetPlayers())
-                if (Player* player = itr.GetSource())
-                    creature->CastSpell(player, FlashBurnSpellFor(creature), true);
+            creature->CastSpell(creature, FlashBurnSpellFor(creature), true);
             nextFlashBurnTick = nowMs + FLASH_BURN_RAIDWIDE_TICK_MS;
         }
 

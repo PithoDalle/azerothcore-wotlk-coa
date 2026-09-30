@@ -39,7 +39,7 @@ UPDATE `coa_boss_flex` SET
     `entry` = CASE `entry` WHEN 10185 THEN 10189 WHEN 10186 THEN 10190 WHEN 10187 THEN 10191 WHEN 10188 THEN 10192 END
 WHERE `entry` IN (10185,10186,10187,10188);
 
-UPDATE `creature` SET `id` = 10189 WHERE `guid` = 9500000 AND `id` = 10185;
+UPDATE `creature` SET `id` = 10189 WHERE `guid` = 9650000 AND `id` = 10185;
 
 -- The real pillar creatures (from Ascension client data, 2026-09-25).
 -- Templates only for now -- not spawned, and the boss's pillar-shatter

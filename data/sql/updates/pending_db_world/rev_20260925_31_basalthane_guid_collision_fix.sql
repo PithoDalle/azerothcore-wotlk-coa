@@ -10,7 +10,7 @@
 -- reapply, so Basalthane moves to a new guid well outside that range
 -- instead of contesting it back.
 
-DELETE FROM `creature` WHERE `guid` = 9500000;
+DELETE FROM `creature` WHERE `guid` = 9650000;
 INSERT INTO `creature`
     (`guid`, `id`, `map`, `zoneId`, `areaId`, `spawnMask`, `phaseMask`,
      `position_x`, `position_y`, `position_z`, `orientation`,
@@ -18,7 +18,7 @@ INSERT INTO `creature`
      `curhealth`, `curmana`, `MovementType`, `npcflag`, `unit_flags`,
      `dynamicflags`, `ScriptName`, `CreateObject`, `Comment`)
 VALUES
-    (9500000, 10185, 249, 2159, 2159, 15, 1,
+    (9650000, 10185, 249, 2159, 2159, 15, 1,
      -222.149, -18.1718, -77.1028, 0.850519,
      604800, 35, 0,
      0, 0, 1, 0, 0,
