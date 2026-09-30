@@ -12,12 +12,25 @@
 -- (the other three stay 0, meaning "no flex" for that difficulty on that
 -- row -- irrelevant, since that difficulty never spawns that entry).
 --
--- Per-player values: current total HealthModifier (5355/11228/13465/15701,
--- confirmed live 2026-09-25) has no combat-log baseline like the classic
--- raids do, so Heroic (11228) is taken as the 20-player anchor and the
--- other three follow upstream's measured ratio pattern:
---   Normal = Heroic x0.75, Mythic = Heroic x1.505, Ascended = Heroic x2.195
--- 11228 / 20 = 561.4 per player on Heroic.
+-- Per-player values (CORRECTED 2026-09-30, real combat logs found -- see below).
+--
+-- The original values here (421/561/845/1232) were derived from
+-- HealthModifier (5355/11228/13465/15701) used as if it were the raid's
+-- actual total HP anchor -- it isn't; HealthModifier is a template scalar,
+-- not a measured total. Four real Basalthane kills across Normal/Heroic/
+-- Mythic gave actual per-player totals ~2800x higher than that guess:
+--   Normal  (24.08, 19 players): 22,343,440 total -> 1,175,972 / player
+--   Heroic  (24.08, 20 players): 40,244,223 total -> 2,012,211 / player
+--   Heroic  (25.08, 13 players): 24,182,108 total -> 1,860,162 / player
+--   Mythic  (26.08, 19 players): 54,699,256 total -> 2,878,908 / player
+-- Heroic here is the mean of its two kills (1,936,186). Mythic/Heroic
+-- measures at 1.49, matching the classic-raid pattern's 1.505 almost
+-- exactly -- confirms Mythic flexes per-player just like Normal/Heroic,
+-- not a flat total regardless of player count. Ascended has no logged kill;
+-- extrapolated the same way the classic raids' ungled difficulties are
+-- (Heroic x2.19, same MC pattern) -> 4,240,248 / player.
+-- Player counts are "everyone who hit him", a lower bound (~7% error),
+-- same caveat as the classic-raid data this pattern comes from.
 
 CREATE TABLE IF NOT EXISTS `coa_boss_flex` (
   `entry`    INT UNSIGNED NOT NULL COMMENT 'base creature entry',
@@ -30,7 +43,7 @@ CREATE TABLE IF NOT EXISTS `coa_boss_flex` (
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
 
 DELETE FROM `coa_boss_flex` WHERE `entry` IN (10185,10186,10187,10188);
-INSERT INTO `coa_boss_flex` VALUES (10185, 421, 0, 0, 0, 'Basalthane Normal: Heroic x0.750 (pattern), anchor 11228 total / 20 players');
-INSERT INTO `coa_boss_flex` VALUES (10186, 0, 561, 0, 0, 'Basalthane Heroic: 11228 total / 20 players (anchor)');
-INSERT INTO `coa_boss_flex` VALUES (10187, 0, 0, 845, 0, 'Basalthane Mythic: Heroic x1.505 (pattern)');
-INSERT INTO `coa_boss_flex` VALUES (10188, 0, 0, 0, 1232, 'Basalthane Ascended: Heroic x2.195 (pattern)');
+INSERT INTO `coa_boss_flex` VALUES (10185, 1175972, 0, 0, 0, 'Basalthane Normal: measured, 24.08 kill, 19 players, 22,343,440 total');
+INSERT INTO `coa_boss_flex` VALUES (10186, 0, 1936186, 0, 0, 'Basalthane Heroic: measured, mean of 2 kills (2,012,211 and 1,860,162 per player)');
+INSERT INTO `coa_boss_flex` VALUES (10187, 0, 0, 2878908, 0, 'Basalthane Mythic: measured, 26.08 kill, 19 players, 54,699,256 total -- per-player like the others, follows MC flex pattern');
+INSERT INTO `coa_boss_flex` VALUES (10188, 0, 0, 0, 4240248, 'Basalthane Ascended: not measured, extrapolated at Heroic x2.19 (MC pattern)');
