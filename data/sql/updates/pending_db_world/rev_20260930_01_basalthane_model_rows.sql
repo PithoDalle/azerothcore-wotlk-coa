@@ -21,3 +21,17 @@ INSERT INTO `creature_template_model` (`CreatureID`, `Idx`, `CreatureDisplayID`,
 DELETE FROM `creature_template_movement` WHERE `CreatureId` = 310189;
 INSERT INTO `creature_template_movement` (`CreatureId`, `Ground`, `Swim`, `Flight`, `Rooted`, `Chase`, `Random`) VALUES
     (310189, 1, 1, 0, 0, 0, 0);
+
+-- Even with the creature_template_model row above, Basalthane's stock display
+-- (142102) and the ooze's stock display (60375) ALSO need a creature_model_info
+-- row each -- ObjectMgr::GetCreatureModelInfo() does a SQL lookup by DisplayID
+-- and returns nullptr with no row, which aborts the whole creature load with
+-- the exact same "has no model ... defined in table creature_template_model,
+-- can't load" message even though creature_template_model itself is correct.
+-- Confirmed missing on a second, independently-set-up world DB (never touched
+-- by any of this project's ad-hoc mysql CLI sessions) - same "only ever
+-- applied by hand on the original dev DB" story as everything else here.
+DELETE FROM `creature_model_info` WHERE `DisplayID` IN (142102, 60375);
+INSERT INTO `creature_model_info` (`DisplayID`, `BoundingRadius`, `CombatReach`, `Gender`, `DisplayID_Other_Gender`) VALUES
+    (142102, 2, 6, 2, 0),
+    (60375, 0.5, 1.5, 2, 0);
