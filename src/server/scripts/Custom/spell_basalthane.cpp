@@ -1131,8 +1131,13 @@ void AddSC_spell_basalthane()
     new playerscript_basalthane_annihilation_cleanup();
     new allcreaturescript_basalthane_cleanup();
     // Native SmartAI MoveFollow (smart_scripts id=1 for entry 310189) was re-tested
-    // 2026-09-24 after fixing the real despawn bug (id=16) and STILL launched the ooze
-    // into the air - confirmed independent issue, not a symptom of the despawn bug.
-    // Back to this manual movement permanently unless a real terrain/mmap fix happens.
-    new allcreaturescript_basalthane_ooze_movement();
+    // 2026-09-30 after fresh vmaps/mmaps fixed this room's terrain: the old "flies
+    // into the air" bug is indeed gone, but native follow has its own catch-up/
+    // acceleration behavior when far behind its target, making the ooze move too
+    // fast. Countered by slowing the ooze's own speed down (see
+    // rev_20260930_05_basalthane_ooze_movement_final.sql) instead of avoiding
+    // native follow - it moves smoothly now, this custom manual-movement class
+    // (NearTeleportTo every 200ms) visibly lags by comparison. Kept in the file
+    // in case native follow ever needs to be abandoned again.
+    // new allcreaturescript_basalthane_ooze_movement();
 }
