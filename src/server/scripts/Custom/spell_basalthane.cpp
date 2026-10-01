@@ -112,6 +112,16 @@ namespace
     constexpr uint32 SPELL_ERUPTION_EXPLOSION_D1 = 2105078;
     constexpr uint32 SPELL_ERUPTION_EXPLOSION_D2 = 2105079;
     constexpr uint32 SPELL_ERUPTION_EXPLOSION_D3 = 2105080;
+    // Heat Splash: real native School Damage (Fire), per difficulty - confirmed via a
+    // raw Spell.dbc parse (ImplicitTargetA/B = TARGET_SRC_CASTER + TARGET_UNIT_SRC_AREA_ENEMY,
+    // same "hits everyone around whoever casts it" pattern as Flash Burn), so like the
+    // Eruption explosion spells it needs a relocated WORLD_TRIGGER to land anywhere but
+    // on Basalthane himself - see CastHeatSplashAt. Part of the Eruption impact, alongside
+    // the explosion and Magma Pool.
+    constexpr uint32 SPELL_HEAT_SPLASH_D0 = 2108251;
+    constexpr uint32 SPELL_HEAT_SPLASH_D1 = 2108252;
+    constexpr uint32 SPELL_HEAT_SPLASH_D2 = 2108253;
+    constexpr uint32 SPELL_HEAT_SPLASH_D3 = 2108254;
     constexpr float ERUPTION_BURST_RADIUS = 6.0f; // GUESS: still used for who "counts as hit" for the split damage
     // Magma Pool's own Spell.dbc duration is 168 hours - a failsafe cap, not the real
     // lifetime. Normal/Heroic (10189/10190): expires on its own after 20s. Mythic/Ascended
@@ -487,6 +497,17 @@ namespace
         }
     }
 
+    uint32 HeatSplashSpellFor(Unit* caster)
+    {
+        switch (GetDifficultyEntry(caster))
+        {
+            case ENTRY_BASALTHANE_HEROIC:   return SPELL_HEAT_SPLASH_D1;
+            case ENTRY_BASALTHANE_MYTHIC:   return SPELL_HEAT_SPLASH_D2;
+            case ENTRY_BASALTHANE_ASCENDED: return SPELL_HEAT_SPLASH_D3;
+            default:                        return SPELL_HEAT_SPLASH_D0;
+        }
+    }
+
     // forcedDurationMs >= 0 always overrides to that exact duration (used for the early
     // cast-start telegraph). Left at -1, it falls back to the real per-difficulty rule.
     void CastMagmaPoolAt(Unit* caster, float x, float y, float z, int32 forcedDurationMs = -1)
@@ -598,6 +619,22 @@ namespace
     void CastEruptionExplosionAt(Unit* caster, float x, float y, float z)
     {
         uint32 spellId = EruptionExplosionSpellFor(caster);
+        if (!sSpellMgr->GetSpellInfo(spellId))
+            return;
+
+        if (Creature* trigger = caster->SummonCreature(WORLD_TRIGGER, x, y, z, 0.0f, TEMPSUMMON_TIMED_DESPAWN, 1000))
+        {
+            trigger->SetFaction(caster->GetFaction());
+            trigger->CastSpell(trigger, spellId, true);
+        }
+    }
+
+    // Same relocation trick as CastEruptionExplosionAt - Heat Splash is also
+    // TARGET_SRC_CASTER + SRC_AREA_ENEMY, so it has to be cast from a trigger sitting
+    // at the impact point rather than from Basalthane himself.
+    void CastHeatSplashAt(Unit* caster, float x, float y, float z)
+    {
+        uint32 spellId = HeatSplashSpellFor(caster);
         if (!sSpellMgr->GetSpellInfo(spellId))
             return;
 
@@ -792,6 +829,10 @@ class spell_basalthane_eruption : public SpellScript
 
         // The real explosion: native School Damage + Knockback + stacking Fire-vulnerability debuff
         CastEruptionExplosionAt(caster, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ());
+
+        // Heat Splash: a second, separate instant School Damage hit at the same impact
+        // point (not part of the explosion/magma pool DBC data - a distinct spell).
+        CastHeatSplashAt(caster, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ());
 
         // Magma Pool is a real native area aura - cast it at the impact point to leave the ground hazard
         CastMagmaPoolAt(caster, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ());
