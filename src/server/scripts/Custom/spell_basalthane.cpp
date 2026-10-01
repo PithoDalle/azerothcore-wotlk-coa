@@ -188,6 +188,19 @@ namespace
     constexpr uint32 INFERNO_TRAIL_CAST_INTERVAL_MS = 14000;
     std::unordered_map<ObjectGuid, uint32> infernoTrailNextCast;
 
+    // Eruption moved from native SmartAI to C++ (2026-09-30) so its target can
+    // exclude both the tank AND the off-tank - SmartAI's target_type=6
+    // (SMART_TARGET_HOSTILE_RANDOM_NOT_TOP) only excludes the single top-threat
+    // unit, there's no native option to exclude a second, separately-tracked
+    // off-tank too. Timing unchanged from the old smart_scripts rows: first
+    // cast at 39s (WeakAuras data), then 70-80s random on Normal/Heroic/Mythic,
+    // fixed 50s on Ascended (user wants a faster pace there).
+    constexpr uint32 ERUPTION_INITIAL_CAST_MS = 39000;
+    constexpr uint32 ERUPTION_REPEAT_MIN_MS = 70000;
+    constexpr uint32 ERUPTION_REPEAT_MAX_MS = 80000;
+    constexpr uint32 ERUPTION_ASCENDED_REPEAT_MS = 50000;
+    std::unordered_map<ObjectGuid, uint32> eruptionNextCast;
+
     // Molten Blood ooze spawning - moved from SmartAI to C++ (2026-09-24) because the
     // boss gets dragged around this room (not tanked in the middle), so "spawn at one of
     // the 3 points farthest from the boss" has to be computed against his CURRENT
@@ -886,6 +899,7 @@ public:
             flashBurnNextTick.erase(creature->GetGUID());
             smolderingVengeanceOpenerApplied.erase(creature->GetGUID());
             infernoTrailNextCast.erase(creature->GetGUID());
+            eruptionNextCast.erase(creature->GetGUID());
             moltenBloodNextSpawn.erase(creature->GetGUID());
             return;
         }
@@ -923,18 +937,67 @@ public:
                 }
                 else
                 {
-                    // Never the tank - Inferno Trail goes at a random DPS or healer.
+                    // Never the tank OR the off-tank - Inferno Trail goes at a random
+                    // DPS or healer. Picks from the boss's own threat list (actually
+                    // engaged, alive players only) rather than every player on the
+                    // map - the old map-wide pool could pick dead players, GMs, or
+                    // people still at the entrance, all of which fail a non-triggered
+                    // cast silently while this cycle's cast gets skipped anyway.
                     Unit* tank = creature->GetVictim();
+                    Player* offTank = FindOffTank(creature);
                     std::vector<Player*> players;
-                    for (auto const& itr : creature->GetMap()->GetPlayers())
-                        if (Player* player = itr.GetSource())
-                            if (player != tank)
-                                players.push_back(player);
+                    for (auto const& ref : creature->GetThreatMgr().GetSortedThreatList())
+                    {
+                        Unit* target = ref->GetVictim();
+                        if (!target || !target->IsPlayer())
+                            continue;
+                        Player* player = target->ToPlayer();
+                        if (player != tank && player != offTank && player->IsAlive() && !player->IsGameMaster())
+                            players.push_back(player);
+                    }
 
                     if (!players.empty())
                         creature->CastSpell(Acore::Containers::SelectRandomContainerElement(players), SPELL_INFERNO_TRAIL, false);
 
                     nextInferno = uint32(GameTime::GetGameTimeMS().count()) + INFERNO_TRAIL_CAST_INTERVAL_MS;
+                }
+            }
+        }
+
+        // Eruption scheduling (see ERUPTION_INITIAL_CAST_MS comment).
+        {
+            uint32& nextEruption = eruptionNextCast[creature->GetGUID()];
+            if (nextEruption == 0)
+                nextEruption = uint32(GameTime::GetGameTimeMS().count()) + ERUPTION_INITIAL_CAST_MS;
+            else if (uint32(GameTime::GetGameTimeMS().count()) >= nextEruption)
+            {
+                if (creature->GetCurrentSpell(CURRENT_GENERIC_SPELL))
+                {
+                    // Something else (Annihilation Strike or Inferno Trail) is already
+                    // mid-cast - retry shortly rather than waiting a full cycle.
+                    nextEruption = uint32(GameTime::GetGameTimeMS().count()) + 1000;
+                }
+                else
+                {
+                    Unit* tank = creature->GetVictim();
+                    Player* offTank = FindOffTank(creature);
+                    std::vector<Player*> players;
+                    for (auto const& ref : creature->GetThreatMgr().GetSortedThreatList())
+                    {
+                        Unit* target = ref->GetVictim();
+                        if (!target || !target->IsPlayer())
+                            continue;
+                        Player* player = target->ToPlayer();
+                        if (player != tank && player != offTank && player->IsAlive() && !player->IsGameMaster())
+                            players.push_back(player);
+                    }
+
+                    if (!players.empty())
+                        creature->CastSpell(Acore::Containers::SelectRandomContainerElement(players), SPELL_ERUPTION, false);
+
+                    bool const ascended = GetDifficultyEntry(creature) == ENTRY_BASALTHANE_ASCENDED;
+                    nextEruption = uint32(GameTime::GetGameTimeMS().count()) +
+                        (ascended ? ERUPTION_ASCENDED_REPEAT_MS : urand(ERUPTION_REPEAT_MIN_MS, ERUPTION_REPEAT_MAX_MS));
                 }
             }
         }
