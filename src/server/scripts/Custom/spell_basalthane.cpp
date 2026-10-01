@@ -24,6 +24,7 @@
 #include "AllCreatureScript.h"
 #include "Containers.h"
 #include "Creature.h"
+#include "DataMap.h"
 #include "GameObject.h"
 #include "GameTime.h"
 #include "GridNotifiers.h"
@@ -97,11 +98,6 @@ namespace
     constexpr uint32 SPELL_INFERNO_TRAIL_HIT_D3 = 2108222;
     constexpr uint32 SPELL_CRACKED_ARMOR = 2108234;
 
-    // Direction the line was aimed in, captured the instant the cast started (see
-    // OnAllCreatureUpdate below) - not the target's live position 2.5s later, which is
-    // what makes the line dodgeable instead of a guaranteed hit.
-    std::unordered_map<ObjectGuid, std::pair<float, float>> infernoTrailDirection;
-
     constexpr uint32 SPELL_ERUPTION = 2108227;
     constexpr uint32 SPELL_ERUPTION_PRE = 2108239; // "Eruption - Hidden - Pre", real cast-start telegraph
     // Real native periodic-damage area aura, per difficulty
@@ -155,19 +151,12 @@ namespace
     // waiting on their own respawntimesecs. Confirmed 2026-09-23 (back when this was
     // still gameobject phase-hiding): pillars only come back on wipe/kill/evade - no
     // mid-fight respawn. Don't re-add one without the user asking for it again.
-    std::unordered_set<ObjectGuid> hiddenPillars;
 
     // Cracked Armor is self-applied to Basalthane by the pillar-stun (see
     // spell_basalthane_annihilation_strike::HandleDummy), not a tank debuff - tracked
     // here and force-removed after CRACKED_ARMOR_DURATION_SECONDS since we can't trust
     // this custom spell's own DBC duration field (same pattern as Magma Pool's bogus
     // 168h cap elsewhere in this file).
-    std::unordered_map<ObjectGuid, uint32> crackedArmorUntil;
-
-    // Tracks which Basalthane GUIDs we've already raid-wide-applied opening Flash Burn
-    // to for the current pull, so the rising edge (not-in-combat -> in-combat) only
-    // fires once per pull instead of every update tick.
-    std::unordered_set<ObjectGuid> flashBurnOpenerApplied;
 
     // CONFIRMED from real kill logs (cross-checked across 2 separate kills): raid-wide
     // Flash Burn stacks reapply on a clean, fixed 15.0s cycle the whole fight - this is
@@ -175,7 +164,6 @@ namespace
     // and doesn't line up with this). Independent periodic mechanic, first tick 15s
     // after the opener.
     constexpr uint32 FLASH_BURN_RAIDWIDE_TICK_MS = 15000;
-    std::unordered_map<ObjectGuid, uint32> flashBurnNextTick;
 
     // Inferno Trail is scheduled from C++ (not SmartAI, unlike Fierce Blow/Annihilation
     // Strike/Eruption) so it can give those two real priority: CONFIRMED cadence from
@@ -186,7 +174,6 @@ namespace
     // earlier randomized-interval approximation (removed 2026-09-24, user asked for the
     // real thing instead).
     constexpr uint32 INFERNO_TRAIL_CAST_INTERVAL_MS = 14000;
-    std::unordered_map<ObjectGuid, uint32> infernoTrailNextCast;
 
     // Eruption moved from native SmartAI to C++ (2026-09-30) so its target can
     // exclude both the tank AND the off-tank - SmartAI's target_type=6
@@ -199,7 +186,6 @@ namespace
     constexpr uint32 ERUPTION_REPEAT_MIN_MS = 70000;
     constexpr uint32 ERUPTION_REPEAT_MAX_MS = 80000;
     constexpr uint32 ERUPTION_ASCENDED_REPEAT_MS = 50000;
-    std::unordered_map<ObjectGuid, uint32> eruptionNextCast;
 
     // Molten Blood ooze spawning - moved from SmartAI to C++ (2026-09-24) because the
     // boss gets dragged around this room (not tanked in the middle), so "spawn at one of
@@ -233,7 +219,41 @@ namespace
         { -178.40074f,   9.963768f, -78.81197f  },
         { -195.8838f,   29.746857f, -78.93467f  },
     };
-    std::unordered_map<ObjectGuid, uint32> moltenBloodNextSpawn;
+
+    // All per-pull Basalthane state lives here, attached directly to the boss's own
+    // Creature object via AC's CustomData/DataMap mechanism, instead of in file-level
+    // globals keyed by ObjectGuid. Creature GUIDs are only unique within a single map,
+    // so two simultaneous Onyxia's Lair instances could have two Basalthane creatures
+    // sharing the same GUID - with the old global-map approach, that meant instance B's
+    // idle cleanup could erase/reset instance A's actively-fighting state (and, under
+    // MapUpdate.Threads > 1, was an outright unsynchronized data race). CustomData is
+    // physically attached to the specific Creature C++ object, so two different
+    // instances' Basalthane creatures - distinct objects regardless of GUID - always
+    // get their own, fully isolated copy automatically. Fixes the "encounter state is
+    // global and collides across instances" review finding without having to replace
+    // SmartAI (which still drives Fierce Blow/Berserk/melee/threat for this boss).
+    struct BasalthaneState : DataMap::Base
+    {
+        bool flashBurnOpenerApplied = false;
+        uint32 flashBurnNextTick = 0;
+        bool smolderingVengeanceOpenerApplied = false;
+        uint32 infernoTrailNextCast = 0;
+        uint32 eruptionNextCast = 0;
+        uint32 moltenBloodNextSpawn = 0;
+        uint32 crackedArmorUntil = 0; // 0 = not currently active
+        bool hasInfernoTrailDirection = false;
+        float infernoTrailDirX = 0.0f;
+        float infernoTrailDirY = 0.0f;
+        std::unordered_set<ObjectGuid> hiddenPillars;
+        Spell* lastGenericSpell = nullptr;
+    };
+
+    constexpr char BASALTHANE_STATE_KEY[] = "custom.basalthane.state";
+
+    BasalthaneState& StateFor(Creature* boss)
+    {
+        return *boss->CustomData.GetDefault<BasalthaneState>(BASALTHANE_STATE_KEY);
+    }
 
     void SpawnMoltenBloodAtFarthestPoint(Creature* boss)
     {
@@ -285,12 +305,6 @@ namespace
         }
     }
 
-    // Tracks which Basalthane GUIDs already got their one-time Smoldering Vengeance
-    // opener thrown on the off-tank for the current pull - see the apply site in
-    // OnAllCreatureUpdate for why this can't just fire on the same rising edge as the
-    // Flash Burn opener (the threat list needs a moment to have two players on it).
-    std::unordered_set<ObjectGuid> smolderingVengeanceOpenerApplied;
-
     // Picks the current off-tank: the second-highest-threat PLAYER on the boss's threat
     // list (index 0 is the current tank/victim). Returns nullptr if there aren't two
     // distinct player tanks on the list yet (e.g. right at the very start of the pull).
@@ -337,9 +351,9 @@ namespace
         return nearest;
     }
 
-    void ShatterPillar(Creature* pillar)
+    void ShatterPillar(Creature* boss, Creature* pillar)
     {
-        hiddenPillars.insert(pillar->GetGUID());
+        StateFor(boss).hiddenPillars.insert(pillar->GetGUID());
         pillar->KillSelf();
     }
 
@@ -351,11 +365,12 @@ namespace
     }
 
     // Restores every currently-shattered pillar immediately (wipe/kill/evade)
-    void RestoreAllPillars(Unit* context)
+    void RestoreAllPillars(Creature* boss)
     {
-        for (ObjectGuid const& guid : hiddenPillars)
-            RestorePillar(context, guid);
-        hiddenPillars.clear();
+        BasalthaneState& state = StateFor(boss);
+        for (ObjectGuid const& guid : state.hiddenPillars)
+            RestorePillar(boss, guid);
+        state.hiddenPillars.clear();
     }
 
     // Both real per-difficulty values pulled directly from Spell.dbc (Ascension's own
@@ -636,8 +651,11 @@ class spell_basalthane_annihilation_strike : public SpellScript
             caster->CastSpell(caster, SPELL_IGNEOUS_IMPACT, true);
             caster->CastSpell(caster, SPELL_CAUGHT_IN_THE_BLAST, true);
             caster->CastSpell(caster, SPELL_CRACKED_ARMOR, true);
-            crackedArmorUntil[caster->GetGUID()] = uint32(GameTime::GetGameTimeMS().count()) + CRACKED_ARMOR_DURATION_SECONDS * 1000;
-            ShatterPillar(pillar);
+            if (Creature* boss = caster->ToCreature())
+            {
+                StateFor(boss).crackedArmorUntil = uint32(GameTime::GetGameTimeMS().count()) + CRACKED_ARMOR_DURATION_SECONDS * 1000;
+                ShatterPillar(boss, pillar);
+            }
         }
     }
 
@@ -661,11 +679,12 @@ class spell_basalthane_inferno_trail : public SpellScript
         // Aim direction was captured at cast start (OnAllCreatureUpdate); fall back to
         // the resolved target's current position if it's missing for some reason.
         float dirX = 0.0f, dirY = 0.0f;
-        auto itr = infernoTrailDirection.find(caster->GetGUID());
-        if (itr != infernoTrailDirection.end())
+        Creature* casterCreature = caster->ToCreature();
+        if (casterCreature && StateFor(casterCreature).hasInfernoTrailDirection)
         {
-            dirX = itr->second.first;
-            dirY = itr->second.second;
+            BasalthaneState const& state = StateFor(casterCreature);
+            dirX = state.infernoTrailDirX;
+            dirY = state.infernoTrailDirY;
         }
         else
         {
@@ -883,11 +902,13 @@ namespace
         boss->RemoveDynObject(SPELL_MAGMA_POOL_D1);
         boss->RemoveDynObject(SPELL_MAGMA_POOL_D2);
         boss->RemoveDynObject(SPELL_MAGMA_POOL_D3);
-        infernoTrailDirection.erase(boss->GetGUID());
+
+        BasalthaneState& state = StateFor(boss);
+        state.hasInfernoTrailDirection = false;
 
         // Cracked Armor is self-applied to the boss, not players - strip it here too.
         boss->RemoveAurasDueToSpell(SPELL_CRACKED_ARMOR);
-        crackedArmorUntil.erase(boss->GetGUID());
+        state.crackedArmorUntil = 0;
 
         // Pillars only come back on wipe/evade, NOT on a kill - a dead Basalthane keeps
         // his shattered pillars shattered (confirmed 2026-09-23). Debuffs above still
@@ -914,15 +935,17 @@ public:
         if (creature->GetEntry() != ENTRY_BASALTHANE_NORMAL)
             return;
 
+        BasalthaneState& state = StateFor(creature);
+
         if (!creature->IsInCombat())
         {
             ClearAllBasalthaneDebuffs(creature);
-            flashBurnOpenerApplied.erase(creature->GetGUID());
-            flashBurnNextTick.erase(creature->GetGUID());
-            smolderingVengeanceOpenerApplied.erase(creature->GetGUID());
-            infernoTrailNextCast.erase(creature->GetGUID());
-            eruptionNextCast.erase(creature->GetGUID());
-            moltenBloodNextSpawn.erase(creature->GetGUID());
+            state.flashBurnOpenerApplied = false;
+            state.flashBurnNextTick = 0;
+            state.smolderingVengeanceOpenerApplied = false;
+            state.infernoTrailNextCast = 0;
+            state.eruptionNextCast = 0;
+            state.moltenBloodNextSpawn = 0;
             return;
         }
 
@@ -930,7 +953,7 @@ public:
         // among the 3 points currently farthest from Basalthane every time, since he
         // moves around the room and isn't tanked in the middle.
         {
-            uint32& nextMolten = moltenBloodNextSpawn[creature->GetGUID()];
+            uint32& nextMolten = state.moltenBloodNextSpawn;
             if (nextMolten == 0)
                 nextMolten = uint32(GameTime::GetGameTimeMS().count()) + urand(MOLTEN_BLOOD_SPAWN_INTERVAL_MIN_MS, MOLTEN_BLOOD_SPAWN_INTERVAL_MAX_MS);
             else if (uint32(GameTime::GetGameTimeMS().count()) >= nextMolten)
@@ -946,7 +969,7 @@ public:
         // already mid-cast on anything" is an honest proxy for "is one of the two
         // higher-priority casts happening right now" (nothing else shares that slot).
         {
-            uint32& nextInferno = infernoTrailNextCast[creature->GetGUID()];
+            uint32& nextInferno = state.infernoTrailNextCast;
             if (nextInferno == 0)
                 nextInferno = uint32(GameTime::GetGameTimeMS().count()) + INFERNO_TRAIL_CAST_INTERVAL_MS;
             else if (uint32(GameTime::GetGameTimeMS().count()) >= nextInferno)
@@ -988,7 +1011,7 @@ public:
 
         // Eruption scheduling (see ERUPTION_INITIAL_CAST_MS comment).
         {
-            uint32& nextEruption = eruptionNextCast[creature->GetGUID()];
+            uint32& nextEruption = state.eruptionNextCast;
             if (nextEruption == 0)
                 nextEruption = uint32(GameTime::GetGameTimeMS().count()) + ERUPTION_INITIAL_CAST_MS;
             else if (uint32(GameTime::GetGameTimeMS().count()) >= nextEruption)
@@ -1028,12 +1051,12 @@ public:
         // ooze - see the constant comment above). Test-mode override (pulling tank
         // instead of off-tank, for solo/small-group testing) reverted 2026-09-26 -
         // back to the real off-tank now that testing is done.
-        if (smolderingVengeanceOpenerApplied.find(creature->GetGUID()) == smolderingVengeanceOpenerApplied.end())
+        if (!state.smolderingVengeanceOpenerApplied)
         {
             if (Player* offTank = FindOffTank(creature))
             {
                 creature->CastSpell(offTank, SPELL_SMOLDERING_VENGEANCE, true);
-                smolderingVengeanceOpenerApplied.insert(creature->GetGUID());
+                state.smolderingVengeanceOpenerApplied = true;
             }
         }
 
@@ -1046,32 +1069,31 @@ public:
         // range, so this must never be looped per-player (that would stack it N times
         // per pass instead of once).
         uint32 nowMs = uint32(GameTime::GetGameTimeMS().count());
-        if (flashBurnOpenerApplied.insert(creature->GetGUID()).second)
+        if (!state.flashBurnOpenerApplied)
         {
+            state.flashBurnOpenerApplied = true;
             creature->CastSpell(creature, FlashBurnSpellFor(creature), true);
-            flashBurnNextTick[creature->GetGUID()] = nowMs + FLASH_BURN_RAIDWIDE_TICK_MS;
+            state.flashBurnNextTick = nowMs + FLASH_BURN_RAIDWIDE_TICK_MS;
         }
 
         // Periodic raid-wide Flash Burn refresh (see FLASH_BURN_RAIDWIDE_TICK_MS comment) -
         // stacks onto whatever's already there for players still afflicted from the opener.
-        uint32& nextFlashBurnTick = flashBurnNextTick[creature->GetGUID()];
-        if (nowMs >= nextFlashBurnTick)
+        if (nowMs >= state.flashBurnNextTick)
         {
             creature->CastSpell(creature, FlashBurnSpellFor(creature), true);
-            nextFlashBurnTick = nowMs + FLASH_BURN_RAIDWIDE_TICK_MS;
+            state.flashBurnNextTick = nowMs + FLASH_BURN_RAIDWIDE_TICK_MS;
         }
 
         // Force-expire Cracked Armor after CRACKED_ARMOR_DURATION_SECONDS - see the
         // comment on crackedArmorUntil for why this isn't left to the spell's own duration.
-        auto crackedItr = crackedArmorUntil.find(creature->GetGUID());
-        if (crackedItr != crackedArmorUntil.end() && uint32(GameTime::GetGameTimeMS().count()) >= crackedItr->second)
+        if (state.crackedArmorUntil != 0 && uint32(GameTime::GetGameTimeMS().count()) >= state.crackedArmorUntil)
         {
             creature->RemoveAurasDueToSpell(SPELL_CRACKED_ARMOR);
-            crackedArmorUntil.erase(crackedItr);
+            state.crackedArmorUntil = 0;
         }
 
         Spell* current = creature->GetCurrentSpell(CURRENT_GENERIC_SPELL);
-        Spell*& last = lastGenericSpell[creature->GetGUID()];
+        Spell*& last = state.lastGenericSpell;
         if (current == last)
             return;
 
@@ -1094,7 +1116,9 @@ public:
             {
                 dirX = dx / len;
                 dirY = dy / len;
-                infernoTrailDirection[creature->GetGUID()] = { dirX, dirY };
+                state.hasInfernoTrailDirection = true;
+                state.infernoTrailDirX = dirX;
+                state.infernoTrailDirY = dirY;
             }
 
             // Show the full swirl-chain telegraph for the whole 2.5s cast, not just at
@@ -1118,8 +1142,6 @@ public:
         }
     }
 
-private:
-    std::unordered_map<ObjectGuid, Spell*> lastGenericSpell;
 };
 
 // Manually drives the ooze toward Basalthane in pure 2D, bypassing native MoveFollow.
@@ -1136,6 +1158,7 @@ constexpr float OOZE_FOLLOW_STOP_DIST = 3.0f;
 constexpr float OOZE_FOLLOW_SPEED = 2.5f; // yd/s, roughly a normal walk speed
 
 constexpr uint32 OOZE_FOLLOW_TICK_MS = 200; // throttle - see comment below
+constexpr char OOZE_MOVEMENT_STATE_KEY[] = "custom.basalthane.ooze_movement";
 
 class allcreaturescript_basalthane_ooze_movement : public AllCreatureScript
 {
@@ -1147,16 +1170,20 @@ public:
         if (creature->GetEntry() != ENTRY_MOLTEN_BLOOD_OOZE || !creature->IsAlive())
             return;
 
+        // Attached directly to this ooze's own Creature object (CustomData/DataMap),
+        // same reasoning as BasalthaneState above - per-instance by construction,
+        // no GUID-collision risk across simultaneous raid instances.
+        OozeMovementState& moveState = *creature->CustomData.GetDefault<OozeMovementState>(OOZE_MOVEMENT_STATE_KEY);
+
         // Throttled to every OOZE_FOLLOW_TICK_MS instead of every world tick -
         // NearTeleportTo is a real teleport call (grid/visibility recalculation each
         // time), not a smooth-movement API, so calling it dozens of times a second was
         // likely spamming teleports hard enough to cause a visibility/network glitch or
         // trip some anti-spam safety net that made the ooze disappear within seconds.
         uint32 now = uint32(GameTime::GetGameTimeMS().count());
-        uint32& nextMove = oozeNextMoveTick[creature->GetGUID()];
-        if (now < nextMove)
+        if (now < moveState.nextMove)
             return;
-        nextMove = now + OOZE_FOLLOW_TICK_MS;
+        moveState.nextMove = now + OOZE_FOLLOW_TICK_MS;
 
         Creature* boss = creature->FindNearestCreature(ENTRY_BASALTHANE_NORMAL, 200.0f);
         if (!boss)
@@ -1167,15 +1194,14 @@ public:
         // version) let it drift ("flyver op i luften") if NearTeleportTo's own internal
         // position handling nudges Z at all between calls. This way Z is a pure function
         // of progress-along-the-path, immune to any such per-tick drift.
-        auto& spawn = oozeSpawnInfo[creature->GetGUID()];
-        if (spawn.initialDist == 0.0f)
+        if (moveState.initialDist == 0.0f)
         {
             float sdx = boss->GetPositionX() - creature->GetPositionX();
             float sdy = boss->GetPositionY() - creature->GetPositionY();
-            spawn.z = creature->GetPositionZ();
-            spawn.initialDist = std::sqrt(sdx * sdx + sdy * sdy);
-            if (spawn.initialDist <= 0.0f)
-                spawn.initialDist = 0.01f; // avoid div-by-zero if spawned exactly on the boss
+            moveState.z = creature->GetPositionZ();
+            moveState.initialDist = std::sqrt(sdx * sdx + sdy * sdy);
+            if (moveState.initialDist <= 0.0f)
+                moveState.initialDist = 0.01f; // avoid div-by-zero if spawned exactly on the boss
         }
 
         float dx = boss->GetPositionX() - creature->GetPositionX();
@@ -1193,17 +1219,19 @@ public:
         float ny = creature->GetPositionY() + (dy / dist) * step;
         float facing = std::atan2(dy, dx);
 
-        float progress = std::clamp(1.0f - (dist - step) / spawn.initialDist, 0.0f, 1.0f);
-        float nz = spawn.z + (boss->GetPositionZ() - spawn.z) * progress;
+        float progress = std::clamp(1.0f - (dist - step) / moveState.initialDist, 0.0f, 1.0f);
+        float nz = moveState.z + (boss->GetPositionZ() - moveState.z) * progress;
 
         creature->NearTeleportTo(nx, ny, nz, facing);
     }
 
 private:
-    std::unordered_map<ObjectGuid, uint32> oozeNextMoveTick;
-
-    struct OozeSpawnInfo { float z = 0.0f; float initialDist = 0.0f; };
-    std::unordered_map<ObjectGuid, OozeSpawnInfo> oozeSpawnInfo;
+    struct OozeMovementState : DataMap::Base
+    {
+        uint32 nextMove = 0;
+        float z = 0.0f;
+        float initialDist = 0.0f;
+    };
 };
 
 void AddSC_spell_basalthane()
@@ -1215,14 +1243,12 @@ void AddSC_spell_basalthane()
     RegisterSpellScript(spell_basalthane_inferno_trail_hit_visual_only);
     new playerscript_basalthane_annihilation_cleanup();
     new allcreaturescript_basalthane_cleanup();
-    // Native SmartAI MoveFollow (smart_scripts id=1 for entry 310189) was re-tested
-    // 2026-09-30 after fresh vmaps/mmaps fixed this room's terrain: the old "flies
-    // into the air" bug is indeed gone, but native follow has its own catch-up/
-    // acceleration behavior when far behind its target, making the ooze move too
-    // fast. Countered by slowing the ooze's own speed down (see
-    // rev_20260930_05_basalthane_ooze_movement_final.sql) instead of avoiding
-    // native follow - it moves smoothly now, this custom manual-movement class
-    // (NearTeleportTo every 200ms) visibly lags by comparison. Kept in the file
-    // in case native follow ever needs to be abandoned again.
+    // Custom manual movement disabled again 2026-09-30 (second time same day) -
+    // even with the room's terrain fixed by fresh vmaps/mmaps, the NearTeleportTo-
+    // every-200ms approach itself visibly lags. Back to native SmartAI MoveFollow
+    // (smart_scripts id=1, entryorguid=310189, source_type=0, event_chance=100)
+    // for smooth movement, with the ooze's speed_walk/speed_run reduced 60%
+    // (1 -> 0.4, 1.14286 -> 0.457144) to counteract native follow's catch-up/
+    // acceleration behavior instead of avoiding native follow altogether.
     // new allcreaturescript_basalthane_ooze_movement();
 }
