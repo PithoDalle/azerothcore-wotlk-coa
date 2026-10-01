@@ -574,16 +574,38 @@ namespace
 
     // The real explosion: native School Damage + Knockback + stacking "+100% Fire
     // damage taken" debuff, centered on the impact point (not on Basalthane).
+    //
+    // The hit spells (2105077-80) are TARGET_SRC_CASTER + SRC_AREA_* in the DBC -
+    // that implicit target always centers the area on whoever CASTS it, so SetDst
+    // alone can't relocate it (SetDst only matters for TARGET_DEST_* implicit
+    // targets). Summons a short-lived invisible WORLD_TRIGGER at the impact point
+    // and casts from there instead, so the area genuinely originates at (x,y,z).
     void CastEruptionExplosionAt(Unit* caster, float x, float y, float z)
     {
         uint32 spellId = EruptionExplosionSpellFor(caster);
-        SpellInfo const* explosion = sSpellMgr->GetSpellInfo(spellId);
-        if (!explosion)
+        if (!sSpellMgr->GetSpellInfo(spellId))
             return;
 
-        SpellCastTargets targets;
-        targets.SetDst(x, y, z, 0.0f);
-        caster->CastSpell(targets, explosion, nullptr, TRIGGERED_FULL_MASK);
+        if (Creature* trigger = caster->SummonCreature(WORLD_TRIGGER, x, y, z, 0.0f, TEMPSUMMON_TIMED_DESPAWN, 1000))
+        {
+            trigger->SetFaction(caster->GetFaction());
+            trigger->CastSpell(trigger, spellId, true);
+        }
+    }
+
+    // Builds a real SpellNonMeleeDamage, runs it through the normal mitigation
+    // pipeline (resistance, absorbs) and the combat log, instead of a raw
+    // Unit::DealDamage that bypasses both. Needed for this encounter's own
+    // debuffs to actually apply to this damage - Annihilation Strike's -25% Fire
+    // resistance and Eruption's own +100% Fire damage taken stack are both real
+    // auras that only affect damage that goes through this pipeline.
+    void DealMitigatedFireDamage(Unit* caster, Unit* target, uint32 dmg, SpellInfo const* spellInfo)
+    {
+        SpellNonMeleeDamage damageInfo(caster, target, spellInfo, spellInfo->SchoolMask);
+        caster->CalculateSpellDamageTaken(&damageInfo, int32(dmg), spellInfo);
+        Unit::DealDamageMods(target, damageInfo.damage, &damageInfo.absorb);
+        caster->DealSpellDamage(&damageInfo, false);
+        caster->SendSpellNonMeleeDamageLog(&damageInfo);
     }
 
 }
@@ -705,7 +727,7 @@ class spell_basalthane_inferno_trail : public SpellScript
                 continue;
 
             if (dmg)
-                Unit::DealDamage(caster, player, dmg, nullptr, SPELL_DIRECT_DAMAGE, SPELL_SCHOOL_MASK_FIRE, GetSpellInfo(), false);
+                DealMitigatedFireDamage(caster, player, dmg, GetSpellInfo());
             // Flash Burn (2108201-04) is TARGET_SRC_CASTER + TARGET_UNIT_SRC_AREA_ENEMY
             // (200yd around the caster) in the DBC, so CastSpell(player, ...) would
             // actually hit every player within 200yd regardless of the `player` arg,
@@ -747,7 +769,7 @@ class spell_basalthane_eruption : public SpellScript
         uint32 perTarget = EruptionBaseDamageFor(caster) / uint32(hit.size());
 
         for (Unit* u : hit)
-            Unit::DealDamage(caster, u, perTarget, nullptr, SPELL_DIRECT_DAMAGE, SPELL_SCHOOL_MASK_FIRE, GetSpellInfo(), false);
+            DealMitigatedFireDamage(caster, u, perTarget, GetSpellInfo());
 
         // The real explosion: native School Damage + Knockback + stacking Fire-vulnerability debuff
         CastEruptionExplosionAt(caster, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ());
