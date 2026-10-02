@@ -31,22 +31,27 @@ UPDATE `creature_template_movement` SET
     `CreatureId` = CASE `CreatureId` WHEN 10185 THEN 10189 WHEN 10186 THEN 10190 WHEN 10187 THEN 10191 WHEN 10188 THEN 10192 END
 WHERE `CreatureId` IN (10185,10186,10187,10188);
 
-UPDATE `smart_scripts` SET
-    `entryorguid` = CASE `entryorguid` WHEN 10185 THEN 10189 WHEN 10186 THEN 10190 WHEN 10187 THEN 10191 WHEN 10188 THEN 10192 END
-WHERE `entryorguid` IN (10185,10186,10187,10188) AND `source_type` = 0;
+-- smart_scripts for entryorguid 10185-10188/10189-10192 is established fresh by
+-- rev_20261002_04_basalthane_smartai_full_block_consolidation.sql as a full
+-- DELETE+INSERT (per .agents/docs/sql-guidelines.md, smart_scripts edits never use a
+-- partial UPDATE) - no rename needed here, that file owns the complete final state
+-- regardless of what entry numbers existed before it runs.
 
 UPDATE `coa_boss_flex` SET
     `entry` = CASE `entry` WHEN 10185 THEN 10189 WHEN 10186 THEN 10190 WHEN 10187 THEN 10191 WHEN 10188 THEN 10192 END
 WHERE `entry` IN (10185,10186,10187,10188);
 
-UPDATE `creature` SET `id` = 10189 WHERE `guid` = 9500000 AND `id` = 10185;
+UPDATE `creature` SET `id` = 10189 WHERE `guid` = 9650000 AND `id` = 10185;
 
 -- The real pillar creatures (from Ascension client data, 2026-09-25).
 -- Templates only for now -- not spawned, and the boss's pillar-shatter
 -- mechanic (currently gameobject-based, entry 9500100) is NOT wired to
 -- these yet. Follow-up work, not part of this rename.
-DELETE FROM `creature_template` WHERE `entry` IN (10186,10187,10188);
-INSERT INTO `creature_template`
+--
+-- No DELETE here (creature_template entries are never deleted, per codestyle) - by this
+-- point in the chain, 10186-10188 were already vacated by the rename UPDATE above, so
+-- INSERT IGNORE is both correct for a fresh install and safe to replay.
+INSERT IGNORE INTO `creature_template`
     (`entry`, `name`, `minlevel`, `maxlevel`, `faction`, `speed_walk`, `speed_run`,
      `rank`, `unit_class`, `type`, `HealthModifier`, `ManaModifier`,
      `ArmorModifier`, `ExperienceModifier`, `RegenHealth`, `AIName`, `ScriptName`)
@@ -55,5 +60,6 @@ VALUES
     (10187, 'Crumbling Pillar', 63, 63, 14, 1, 1.14286, 0, 1, 4, 1, 1, 1, 1, 1, '', ''),
     (10188, 'Searing Pillar',   63, 63, 14, 1, 1.14286, 0, 1, 4, 1, 1, 1, 1, 1, '', '');
 
+DELETE FROM `creature_template_model` WHERE `CreatureID` IN (10186,10187,10188);
 INSERT INTO `creature_template_model` (`CreatureID`, `Idx`, `CreatureDisplayID`, `DisplayScale`, `Probability`)
 VALUES (10186, 0, 200003, 1, 1), (10187, 0, 200003, 1, 1), (10188, 0, 200003, 1, 1);

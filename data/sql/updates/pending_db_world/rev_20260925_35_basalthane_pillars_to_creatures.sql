@@ -33,7 +33,7 @@ WHERE `entry` IN (10186, 10187, 10188);
 
 DELETE FROM `gameobject` WHERE `guid` IN (6901536, 6901537, 6901538);
 
-DELETE FROM `creature` WHERE `guid` IN (9500001, 9500002, 9500003);
+DELETE FROM `creature` WHERE `guid` IN (9650001, 9650002, 9650003);
 INSERT INTO `creature`
     (`guid`, `id`, `map`, `zoneId`, `areaId`, `spawnMask`, `phaseMask`,
      `position_x`, `position_y`, `position_z`, `orientation`,
@@ -41,9 +41,9 @@ INSERT INTO `creature`
      `curhealth`, `curmana`, `MovementType`, `npcflag`, `unit_flags`,
      `dynamicflags`, `ScriptName`, `CreateObject`, `Comment`)
 VALUES
-    (9500001, 10186, 249, 2159, 2159, 15, 1, -209.264, -47.7954, -76.9938, 0,
+    (9650001, 10186, 249, 2159, 2159, 15, 1, -209.264, -47.7954, -76.9938, 0,
      120, 0, 0, 1, 0, 0, 0, 0, 0, '', 0, 'Basalthane Pillar 1 (Volatile Pillar)'),
-    (9500002, 10187, 249, 2159, 2159, 15, 1, -247.185,  14.6485, -78.3442, 0,
+    (9650002, 10187, 249, 2159, 2159, 15, 1, -247.185,  14.6485, -78.3442, 0,
      120, 0, 0, 1, 0, 0, 0, 0, 0, '', 0, 'Basalthane Pillar 2 (Crumbling Pillar)'),
-    (9500003, 10188, 249, 2159, 2159, 15, 1, -190.622,   5.15241, -78.6413, 0,
+    (9650003, 10188, 249, 2159, 2159, 15, 1, -190.622,   5.15241, -78.6413, 0,
      120, 0, 0, 1, 0, 0, 0, 0, 0, '', 0, 'Basalthane Pillar 3 (Searing Pillar)');
