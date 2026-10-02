@@ -375,6 +375,27 @@ namespace
         return nearest;
     }
 
+    // CONFIRMED from real kill logs (2026-10-02): Igneous Impact's damage, Flash Burn
+    // being stripped from the whole raid, and Cracked Armor landing on Basalthane all
+    // happen in the exact same tick, every time a pillar shatters - not just on
+    // wipe/kill/evade (ClearAllBasalthaneDebuffs' own Flash Burn removal). A fresh
+    // reapplication (raid-wide opener/15s tick, or Inferno Trail hits) still stacks it
+    // right back up afterward - this only wipes what's already there at the moment
+    // the pillar breaks.
+    void ClearFlashBurnFromRaid(Creature* boss)
+    {
+        for (auto const& itr : boss->GetMap()->GetPlayers())
+        {
+            if (Player* player = itr.GetSource())
+            {
+                player->RemoveAurasDueToSpell(SPELL_FLASH_BURN_D0);
+                player->RemoveAurasDueToSpell(SPELL_FLASH_BURN_D1);
+                player->RemoveAurasDueToSpell(SPELL_FLASH_BURN_D2);
+                player->RemoveAurasDueToSpell(SPELL_FLASH_BURN_D3);
+            }
+        }
+    }
+
     void ShatterPillar(Creature* boss, Creature* pillar)
     {
         StateFor(boss).hiddenPillars.insert(pillar->GetGUID());
@@ -728,6 +749,7 @@ class spell_basalthane_annihilation_strike : public SpellScript
                 BasalthaneState& state = StateFor(boss);
                 state.crackedArmorUntil = uint32(GameTime::GetGameTimeMS().count()) + CRACKED_ARMOR_DURATION_SECONDS * 1000;
                 ShatterPillar(boss, pillar);
+                ClearFlashBurnFromRaid(boss);
 
                 // Real interaction (WeakAuras decode): Cracked Armor also pushes back
                 // Annihilation Strike's and Eruption's next cast by 20s each - only if
