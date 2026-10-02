@@ -230,6 +230,11 @@ namespace
     constexpr float ANNIHILATION_PILLAR_RANGE = 6.0f; // GUESS
     constexpr uint32 SPELL_IGNEOUS_IMPACT = 2108212;
     constexpr uint32 SPELL_CAUGHT_IN_THE_BLAST = 2108216;
+    // CONFIRMED 2026-10-02 (user's own in-game tooltip check): Basalthane also gets
+    // dazed (generic stock spell, not Basalthane-specific - same ID used all over
+    // vanilla WoW) when a pillar shatters, alongside the stun - -50% movement speed,
+    // 4s, dispelled by mount.
+    constexpr uint32 SPELL_DAZED = 1604;
     // CONFIRMED from real kill combat logs: Cracked Armor lasts ~20.0s each time it's
     // applied (self-debuff on Basalthane from a pillar stun, not a tank debuff).
     constexpr uint32 CRACKED_ARMOR_DURATION_SECONDS = 20;
@@ -324,7 +329,13 @@ namespace
     {
         bool flashBurnOpenerApplied = false;
         uint32 flashBurnNextTick = 0;
-        bool smolderingVengeanceOpenerApplied = false;
+        // CORRECTED 2026-10-02 (user's own in-game knowledge): Smoldering Vengeance is
+        // NOT a pull opener - it's assigned entirely on pillar shatter, to whoever has
+        // current aggro (the tank) at that exact moment, and switches holder at the next
+        // shatter if aggro has changed by then. Nobody has it before the first pillar
+        // breaks. Tracks the current holder so the aura can be stripped from them when
+        // it moves to someone else (CastSpell alone would leave both players with it).
+        ObjectGuid smolderingVengeanceHolder;
         uint32 infernoTrailNextCast = 0;
         uint32 eruptionNextCast = 0;
         uint32 annihilationNextCast = 0;
@@ -862,6 +873,29 @@ namespace
         caster->SendSpellNonMeleeDamageLog(&damageInfo);
     }
 
+    // CONFIRMED 2026-10-02 (user's own in-game knowledge): Smoldering Vengeance goes to
+    // whoever has current aggro (the tank) the instant a pillar shatters, and stays with
+    // them until the next shatter reassigns it - possibly to the same player again, if
+    // they still have aggro then. Explicitly strips it from the previous holder before
+    // handing it to the new one (CastSpell alone would leave both players holding it).
+    void AssignSmolderingVengeance(Creature* boss)
+    {
+        Unit* tank = boss->GetVictim();
+        Player* tankPlayer = tank ? tank->ToPlayer() : nullptr;
+        if (!tankPlayer)
+            return;
+
+        BasalthaneState& state = StateFor(boss);
+        if (state.smolderingVengeanceHolder == tankPlayer->GetGUID())
+            return;
+
+        if (Player* oldHolder = ObjectAccessor::GetPlayer(*boss, state.smolderingVengeanceHolder))
+            oldHolder->RemoveAurasDueToSpell(SPELL_SMOLDERING_VENGEANCE);
+
+        tankPlayer->CastSpell(tankPlayer, SPELL_SMOLDERING_VENGEANCE, true);
+        state.smolderingVengeanceHolder = tankPlayer->GetGUID();
+    }
+
 }
 
 class spell_basalthane_annihilation_strike : public SpellScript
@@ -900,6 +934,7 @@ class spell_basalthane_annihilation_strike : public SpellScript
         {
             caster->CastSpell(caster, SPELL_IGNEOUS_IMPACT, true);
             caster->CastSpell(caster, SPELL_CAUGHT_IN_THE_BLAST, true);
+            caster->CastSpell(caster, SPELL_DAZED, true);
             caster->CastSpell(caster, SPELL_CRACKED_ARMOR, true);
             if (Creature* boss = caster->ToCreature())
             {
@@ -907,6 +942,7 @@ class spell_basalthane_annihilation_strike : public SpellScript
                 state.crackedArmorUntil = uint32(GameTime::GetGameTimeMS().count()) + CRACKED_ARMOR_DURATION_SECONDS * 1000;
                 ShatterPillar(boss, pillar);
                 ClearFlashBurnFromRaid(boss);
+                AssignSmolderingVengeance(boss);
 
                 // Real interaction (WeakAuras decode): Cracked Armor also pushes back
                 // Annihilation Strike's and Eruption's next cast by 20s each - only if
@@ -1248,7 +1284,7 @@ public:
             ClearAllBasalthaneDebuffs(creature);
             state.flashBurnOpenerApplied = false;
             state.flashBurnNextTick = 0;
-            state.smolderingVengeanceOpenerApplied = false;
+            state.smolderingVengeanceHolder = ObjectGuid::Empty;
             state.infernoTrailNextCast = 0;
             state.eruptionNextCast = 0;
             state.annihilationNextCast = 0;
@@ -1410,19 +1446,6 @@ public:
 
                     nextAnnihilation = uint32(GameTime::GetGameTimeMS().count()) + urand(ANNIHILATION_CAST_MIN_MS, ANNIHILATION_CAST_MAX_MS);
                 }
-            }
-        }
-
-        // Smoldering Vengeance opener: thrown on the off-tank at pull (not from the
-        // ooze - see the constant comment above). Test-mode override (pulling tank
-        // instead of off-tank, for solo/small-group testing) reverted 2026-09-26 -
-        // back to the real off-tank now that testing is done.
-        if (!state.smolderingVengeanceOpenerApplied)
-        {
-            if (Player* offTank = FindOffTank(creature))
-            {
-                creature->CastSpell(offTank, SPELL_SMOLDERING_VENGEANCE, true);
-                state.smolderingVengeanceOpenerApplied = true;
             }
         }
 
