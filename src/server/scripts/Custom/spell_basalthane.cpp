@@ -209,6 +209,24 @@ namespace
     constexpr int PILLAR_BLOB_WAVE_MIN_VOLATILE = 2;
     constexpr int PILLAR_BLOB_WAVE_MAX_VOLATILE = 3;
     constexpr uint32 ENTRY_MOLTEN_BLOOD_OOZE = 310189; // reverted after diagnostic test 2026-09-24 confirmed entry 68 worked normally (spawned, stayed visible, despawned after the expected ~90s timer) - the bug is specific to 310189's own config, not the spawn mechanism/room/grid. Prime suspect: its model (DisplayID 60375, creature_model_info BoundingRadius 0.5/CombatReach 1.5) may be broken/invisible on this custom client.
+    // CONFIRMED 2026-10-02 (user's own combat-log dig, cross-referencing per-pull ooze
+    // death-damage totals against known per-difficulty boss total-HP figures): the ooze
+    // ALSO flexes per-player like Basalthane himself, not a fixed HP per difficulty.
+    // Mythic/Ascended are 25-man-locked (always x25), matching Basalthane's own
+    // coa_boss_flex convention for those two difficulties - Normal/Heroic flex
+    // dynamically with the instance's actual headcount (clamped 10-25).
+    // Deliberately NOT routed through the shared coa_boss_flex table: that table keys
+    // off `entry % 100000` (AC's own classic-raid "+100000/+200000/+300000 per
+    // difficulty" convention), and 310189 == 10189 + 300000 - a numeric coincidence that
+    // made the module think this ooze IS a difficulty-variant of Basalthane and apply
+    // HIS per-player HP to it. Scaling the ooze's HP directly here avoids the collision
+    // entirely instead of special-casing the shared module for one unlucky entry number.
+    constexpr uint32 MOLTEN_BLOOD_HP_PER_PLAYER_NORMAL = 6050;
+    constexpr uint32 MOLTEN_BLOOD_HP_PER_PLAYER_HEROIC = 8540;
+    constexpr uint32 MOLTEN_BLOOD_HP_PER_PLAYER_MYTHIC = 13150;
+    constexpr uint32 MOLTEN_BLOOD_HP_PER_PLAYER_ASCENDED = 19900;
+    constexpr uint32 MOLTEN_BLOOD_FLEX_MIN_PLAYERS = 10;
+    constexpr uint32 MOLTEN_BLOOD_FLEX_MAX_PLAYERS = 25;
     constexpr float ANNIHILATION_PILLAR_RANGE = 6.0f; // GUESS
     constexpr uint32 SPELL_IGNEOUS_IMPACT = 2108212;
     constexpr uint32 SPELL_CAUGHT_IN_THE_BLAST = 2108216;
@@ -384,11 +402,51 @@ namespace
     // TempSummon::Update, before the type-specific switch). This is the actual fix -
     // the SetDisableGravity/IsGridLoaded workarounds above are left in as harmless
     // extra safety nets, not because they were wrong, just not the real cause.
+    uint32 GetDifficultyEntry(Unit* caster); // defined below, forward-declared for ApplyMoltenBloodFlexHealth
+
+    uint32 MoltenBloodHpPerPlayerFor(uint32 difficultyEntry)
+    {
+        switch (difficultyEntry)
+        {
+            case ENTRY_BASALTHANE_HEROIC:   return MOLTEN_BLOOD_HP_PER_PLAYER_HEROIC;
+            case ENTRY_BASALTHANE_MYTHIC:   return MOLTEN_BLOOD_HP_PER_PLAYER_MYTHIC;
+            case ENTRY_BASALTHANE_ASCENDED: return MOLTEN_BLOOD_HP_PER_PLAYER_ASCENDED;
+            default:                        return MOLTEN_BLOOD_HP_PER_PLAYER_NORMAL;
+        }
+    }
+
+    // Same per-player headcount rule as mod-coa-raid-difficulty's own CountPlayers:
+    // every non-GM player in the map, clamped 10-25.
+    uint32 CountFlexPlayers(Map* map)
+    {
+        uint32 count = 0;
+        map->DoForAllPlayers([&count](Player* player)
+        {
+            if (!player->IsGameMaster())
+                ++count;
+        });
+        return std::clamp(count, MOLTEN_BLOOD_FLEX_MIN_PLAYERS, MOLTEN_BLOOD_FLEX_MAX_PLAYERS);
+    }
+
+    void ApplyMoltenBloodFlexHealth(Creature* boss, Creature* ooze)
+    {
+        uint32 difficultyEntry = GetDifficultyEntry(boss);
+        bool locked25 = (difficultyEntry == ENTRY_BASALTHANE_MYTHIC || difficultyEntry == ENTRY_BASALTHANE_ASCENDED);
+        uint32 players = locked25 ? MOLTEN_BLOOD_FLEX_MAX_PLAYERS : CountFlexPlayers(boss->GetMap());
+        uint32 health = MoltenBloodHpPerPlayerFor(difficultyEntry) * players;
+
+        ooze->SetCreateHealth(health);
+        ooze->SetStatFlatModifier(UNIT_MOD_HEALTH, BASE_VALUE, float(health));
+        ooze->UpdateMaxHealth();
+        ooze->SetHealth(health);
+    }
+
     void SpawnMoltenBloodOozeAt(Creature* boss, MoltenBloodSpawnPoint const* pt)
     {
         if (Creature* ooze = boss->SummonCreature(ENTRY_MOLTEN_BLOOD_OOZE, pt->x, pt->y, pt->z, 0.0f, TEMPSUMMON_TIMED_DESPAWN, MOLTEN_BLOOD_DESPAWN_MS))
         {
             ooze->SetDisableGravity(true);
+            ApplyMoltenBloodFlexHealth(boss, ooze);
         }
     }
 

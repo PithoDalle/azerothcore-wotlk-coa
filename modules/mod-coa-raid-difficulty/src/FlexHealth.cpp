@@ -92,9 +92,23 @@ namespace
 
     // Scales health and keeps the current percentage, so a boss that is
     // already hurt stays exactly as hurt.
+    // CONFIRMED 2026-10-02: entry 310189 (Basalthane's Molten Blood ooze, Onyxia's
+    // Lair) is not a difficulty-variant of anything - it's an unrelated creature whose
+    // own entry number happens to equal 10189 + 300000, which BaseEntry's "+N*100000
+    // per difficulty" convention misreads as the 25-man (D3) variant of Basalthane
+    // (entry 10189). That made this ooze silently get Basalthane's own per-player HP
+    // applied to it. The ooze has its own real per-player flex logic (measured from
+    // combat logs, see MoltenBloodHpPerPlayerFor in spell_basalthane.cpp) applied
+    // directly at spawn time instead of through this shared table - skip it here so a
+    // later OnUnitEnterCombat call doesn't silently undo that with Basalthane's values.
+    constexpr uint32 ENTRY_BASALTHANE_MOLTEN_BLOOD_OOZE = 310189;
+
     void ApplyFlex(Creature* creature)
     {
         if (!creature || !creature->GetMap() || !creature->GetMap()->IsRaid())
+            return;
+
+        if (creature->GetEntry() == ENTRY_BASALTHANE_MOLTEN_BLOOD_OOZE)
             return;
 
         auto it = g_flex.find(BaseEntry(creature->GetEntry()));
