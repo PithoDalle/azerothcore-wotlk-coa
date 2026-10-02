@@ -2155,7 +2155,8 @@ void Player::RegenerateHealth()
 
 void Player::ResetAllPowers()
 {
-    SetHealth(GetMaxHealth());
+    if (IsAlive())
+        SetHealth(GetMaxHealth());
     if (HasActivePowerType(POWER_MANA))
     {
         SetPower(POWER_MANA, GetMaxPower(POWER_MANA));
@@ -7982,7 +7983,7 @@ void Player::_ApplyAllLevelScaleItemMods(bool apply)
 
 void Player::_ApplyAmmoBonuses()
 {
-    if (IsAscensionClass(getClass()))
+    if (!UsesProjectileAmmo(getClass()))
     {
         // CoA ranged damage comes from the equipped weapon, not a projectile
         // stack. Clear stale ammo DPS as well as refusing new ammo bonuses.

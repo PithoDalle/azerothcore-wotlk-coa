@@ -17,9 +17,12 @@
 
 #include "AllBattlegroundScript.h"
 #include "AscensionSpecialization.h"
+#include "AscensionTalentReplacementData.h"
+#include "AscensionWildcard.h"
 #include "Battleground.h"
 #include "CoA.Prestige.API.h"
 #include "CoAPrestigeRules.h"
+#include "CoASpellbook.h"
 #include "Chat.h"
 #include "Config.h"
 #include "CreatureScript.h"
@@ -349,6 +352,20 @@ namespace
                 chains.insert(sSpellMgr->GetFirstSpellInChain(ability.SpellId));
                 player->removeSpell(ability.SpellId, SPEC_MASK_ALL, false);
             }
+        for (AscensionCompatData::TalentReplacement const& replacement : AscensionCompatData::TalentReplacements)
+            if (replacement.ClassId == player->getClass())
+                for (AscensionCompatData::ReplacementRank const& rank : replacement.Ranks)
+                    if (rank.RequiredLevel > level && player->HasSpell(rank.SpellId))
+                    {
+                        chains.insert(sSpellMgr->GetFirstSpellInChain(rank.SpellId));
+                        player->removeSpell(rank.SpellId, SPEC_MASK_ALL, false);
+                    }
+        for (uint32 const spellId : CoASpellbook::UpgradeRanksAbove(player, level))
+            if (player->HasSpell(spellId))
+            {
+                chains.insert(sSpellMgr->GetFirstSpellInChain(spellId));
+                player->removeSpell(spellId, SPEC_MASK_ALL, false);
+            }
         return chains;
     }
 
@@ -462,11 +479,13 @@ namespace
     {
         State state = LoadState(player);
         uint32 const requiredLevel = g_requiredLevel;
-        uint32 const specialization = GetAscensionActiveSpecialization(player);
+        bool const wildcard = AscensionWildcard::IsWildcardHero(player);
+        uint32 const specialization = wildcard ? AscensionWildcard::ActiveSpec(player) + 1 :
+            GetAscensionActiveSpecialization(player);
 
         ActivationFacts facts;
         facts.enabled = g_enabled;
-        facts.customClass = IsAscensionCustomClassId(player->getClass());
+        facts.customClass = wildcard || IsAscensionCustomClassId(player->getClass());
         facts.level = player->GetLevel();
         facts.requiredLevel = requiredLevel;
         facts.active = state.active;
@@ -496,7 +515,8 @@ namespace
         DismissPets(player);
         ResetQuests(player, requiredLevel);
 
-        uint32 const talents = ForgetAscensionClassTalents(player);
+        uint32 const talents = wildcard ? AscensionWildcard::PrestigeSpecialization(player) :
+            ForgetAscensionClassTalents(player);
         std::unordered_set<uint32> const chains = ForgetRanksAbove(player, FirstLevel);
         player->GiveLevel(FirstLevel);
         player->SetUInt32Value(PLAYER_XP, 0);
@@ -541,6 +561,15 @@ namespace
             LOG_ERROR("module.coa_prestige", "{} prestiged but could not be sent to the starting zone.",
                 player->GetName());
         return true;
+    }
+
+    void CatchUpPrestigeCredits(Player* player)
+    {
+        uint32 achieved = 0;
+        for (uint32 offset = 0; offset < PrestigeAchievementCount; ++offset)
+            achieved += player->HasAchieved(PrestigeAchievementFirst + offset) ? 1 : 0;
+        for (uint32 credit = MissingPrestigeCredits(LoadState(player).level, achieved); credit; --credit)
+            player->KilledMonsterCredit(PrestigeKillCredit);
     }
 
     void CompleteIfDue(Player* player)
@@ -592,6 +621,8 @@ public:
                 AddGossipItemFor(player, GOSSIP_ICON_CHAT,
                     "Today's Prestige Quest is " + daily->GetTitle(), GOSSIP_SENDER_MAIN, ACTION_DAILY_LABEL);
         SendPrestigeLevels(player);
+        if (AscensionWildcard::IsWildcardHero(player))
+            AscensionWildcard::SendPrestigeInfo(player);
         SendGossipMenuFor(player, DEFAULT_GOSSIP_MESSAGE, creature);
         return true;
     }
@@ -625,7 +656,16 @@ public:
     coa_prestige_player() : PlayerScript("coa_prestige_player", { PLAYERHOOK_ON_LOGIN, PLAYERHOOK_ON_LOGOUT,
         PLAYERHOOK_ON_LEVEL_CHANGED, PLAYERHOOK_ON_PLAYER_COMPLETE_QUEST, PLAYERHOOK_ON_QUEST_ABANDON,
         PLAYERHOOK_ON_LEARN_SPELL, PLAYERHOOK_ON_MAP_CHANGED,
-        PLAYERHOOK_ON_SEND_INITIAL_PACKETS_BEFORE_ADD_TO_MAP }) { }
+        PLAYERHOOK_ON_SEND_INITIAL_PACKETS_BEFORE_ADD_TO_MAP,
+        PLAYERHOOK_CAN_GIVE_MAIL_REWARD_AT_GIVE_LEVEL }) { }
+
+    // A prestige cycle relevels the character through thresholds it already passed in a
+    // previous cycle; sObjectMgr->GetMailLevelReward has no per-character idempotency of its
+    // own, so it would resend the same mail every cycle without this guard.
+    bool OnPlayerCanGiveMailRewardAtGiveLevel(Player* player, uint8 /*level*/) override
+    {
+        return !IsActive(player);
+    }
 
     // A client that reconnects to a character still in the world gets its initial packets again but
     // no login or map hook, and starts with an empty field table. The levels follow once the
@@ -646,6 +686,7 @@ public:
             return;
 
         LoadOtherCharactersPrestige(player);
+        CatchUpPrestigeCredits(player);
         CompleteIfDue(player);
         if (LoadState(player).active && !player->HasAura(PrestigedAura))
             player->AddAura(PrestigedAura, player);

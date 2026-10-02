@@ -53,6 +53,7 @@
 // They are plain generated data headers, so they are read rather than copied.
 #include "AscensionCoATalentData.h"
 #include "AscensionCustomClassData.h"
+#include "AscensionGuardianCompletion.h"
 #include "AscensionSpellProgressionData.h"
 #include "SpellbookCostData.h"
 #include "SpellbookOfferData.h"
@@ -220,10 +221,13 @@ namespace
         uint8 const classId = uint8(player->getClass());
         uint32 const spec = ActiveSpec(player);
 
-        auto add = [&rows, classId, windowView](uint32 spellId, uint8 requiredLevel,
+        auto add = [&rows, classId, windowView, player, spec](uint32 spellId, uint8 requiredLevel,
                                                 uint32 requiredAbility)
         {
             if (!spellId || !sSpellMgr->GetSpellInfo(spellId))
+                return;
+            if (windowView && classId == CLASS_GUARDIAN && AscensionGuardian::Ballad(spellId) &&
+                (spec != 20 || !player->HasAura(505344)))
                 return;
 
             // A spell the talent trees grant is the tree's to hand out, whatever source
@@ -559,7 +563,8 @@ namespace
         if (found == rows.end())
         {
             if (IsTreeSpell(uint32(player->getClass()), wanted) ||
-                HasRankOrBetter(player, wanted))
+                HasRankOrBetter(player, wanted) ||
+                (player->getClass() == CLASS_GUARDIAN && AscensionGuardian::Ballad(wanted)))
             {
                 WorldPacket failed(SMSG_TRAINER_BUY_FAILED);
                 failed << book->GetGUID() << uint32(wanted)
@@ -743,7 +748,8 @@ class spellbook_metric_provider final : public WorldScript
 public:
     spellbook_metric_provider() : WorldScript("spellbook_metric_provider")
     {
-        CoASpellbook::SetProvider({Spellbook::RowCount, Spellbook::OffersSpell, Spellbook::CoversSpell});
+        CoASpellbook::SetProvider({Spellbook::RowCount, Spellbook::OffersSpell, Spellbook::CoversSpell,
+            Spellbook::UpgradeRanksAbove});
     }
 
     ~spellbook_metric_provider() override
@@ -786,5 +792,18 @@ namespace Spellbook
         // The window drops what the character already holds, so membership alone would report
         // a bought spell as missing. Entitlement is the union of the two.
         return OffersSpell(player, spellId) || HasRankOrBetter(player, spellId);
+    }
+
+    std::vector<uint32> UpgradeRanksAbove(Player *player, uint8 level)
+    {
+        std::vector<uint32> spells;
+        if (!player)
+            return spells;
+
+        for (SpellbookRankData::Rank const &rank : SpellbookRankData::Ranks)
+            if (rank.ClassId == player->getClass() && rank.RequiredLevel > level)
+                spells.push_back(rank.SpellId);
+
+        return spells;
     }
 }

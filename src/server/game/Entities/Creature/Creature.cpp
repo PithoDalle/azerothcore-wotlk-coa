@@ -525,11 +525,10 @@ bool Creature::InitEntry(uint32 Entry, CreatureData const* data)
 
     CreatureModel model = *ObjectMgr::ChooseDisplayId(cinfo, data);
     CreatureModelInfo const* mInfo = sObjectMgr->GetCreatureModelRandomGender(&model, cinfo);
-    if (!mInfo)                                             // Cancel load if no model defined
-    {
-        LOG_ERROR("sql.sql", "Creature (Entry: {}) has no model {} defined in table `creature_template_model`, can't load. ", Entry, model.CreatureDisplayID);
-        return false;
-    }
+    if (!mInfo)
+        LOG_DEBUG("sql.sql",
+                  "No model info for creature (Entry: {}) display {}; loading anyway.",
+                  Entry, model.CreatureDisplayID);
 
     SetDisplayId(model.CreatureDisplayID, model.DisplayScale);
     SetNativeDisplayId(model.CreatureDisplayID);
@@ -1297,7 +1296,8 @@ bool Creature::CanResetTalents(Player* player) const
     if (!trainer)
         return false;
 
-    return player->GetLevel() >= 10 && trainer->IsTrainerValidForPlayer(player);
+    // A Wildcard Hero trains its ranks at any class trainer, but its talents are its rolls.
+    return player->GetLevel() >= 10 && trainer->IsTrainerValidForPlayer(player) && player->getClass() != CLASS_HERO;
 }
 
 Player* Creature::GetLootRecipient() const

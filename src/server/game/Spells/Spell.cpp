@@ -5010,7 +5010,7 @@ void Spell::WriteAmmoToPacket(WorldPacket* data)
                         ammoInventoryType = pProto->InventoryType;
                     }
                 }
-                else if (m_caster->HasAura(46699) || (IsAscensionClass(m_caster->getClass()) &&
+                else if (m_caster->HasAura(46699) || (!UsesProjectileAmmo(m_caster->getClass()) &&
                     (pItem->GetTemplate()->SubClass == ITEM_SUBCLASS_WEAPON_BOW ||
                      pItem->GetTemplate()->SubClass == ITEM_SUBCLASS_WEAPON_GUN ||
                      pItem->GetTemplate()->SubClass == ITEM_SUBCLASS_WEAPON_CROSSBOW))) // Requires No Ammo
@@ -5449,7 +5449,7 @@ void Spell::TakePower()
 
 void Spell::TakeAmmo()
 {
-    if (m_caster->IsPlayer() && IsAscensionClass(m_caster->getClass()))
+    if (m_caster->IsPlayer() && !UsesProjectileAmmo(m_caster->getClass()))
         return;
 
     if (m_attackType == RANGED_ATTACK && m_caster->IsPlayer() && !m_spellInfo->HasAttribute(SPELL_ATTR6_DO_NOT_CONSUME_RESOURCES))
@@ -6785,7 +6785,9 @@ SpellCastResult Spell::CheckCast(bool strict, uint32* /*param1*/, uint32* /*para
                     InstanceTemplate const* it = sObjectMgr->GetInstanceTemplate(m_caster->GetMapId());
                     if (it)
                         allowMount = it->AllowMount;
-                    if (m_caster->IsPlayer() && !allowMount && !m_spellInfo->AreaGroupId)
+                    // Mechsuit is a combat form; its mount helper carries the suit's model and form.
+                    bool tinkerMechsuit = m_spellInfo->Id == 803451 && m_caster->getClass() == CLASS_TINKER;
+                    if (m_caster->IsPlayer() && !allowMount && !m_spellInfo->AreaGroupId && !tinkerMechsuit)
                         return SPELL_FAILED_NO_MOUNTS_ALLOWED;
 
                     if (m_caster->IsInDisallowedMountForm())
@@ -7797,8 +7799,8 @@ SpellCastResult Spell::CheckItems(uint32* param1, uint32* param2)
                         return SPELL_FAILED_EQUIPPED_ITEM;
 
                     // Keep the real ranged-weapon/broken-item checks above.
-                    // Custom classes do not require or consume projectile stacks.
-                    if (IsAscensionClass(m_caster->getClass()))
+                    // Custom classes and Hero do not require or consume projectile stacks.
+                    if (!UsesProjectileAmmo(m_caster->getClass()))
                         break;
 
                     switch (pItem->GetTemplate()->SubClass)
