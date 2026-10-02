@@ -60,6 +60,19 @@ namespace
     constexpr uint32 SPELL_ANNIHILATION_HIT_D1 = 2108208;
     constexpr uint32 SPELL_ANNIHILATION_HIT_D2 = 2108209;
     constexpr uint32 SPELL_ANNIHILATION_HIT_D3 = 2108210;
+    // Annihilation Strike's own cast scheduling, moved from SmartAI to C++ (2026-10-02,
+    // same reasoning as Eruption/Inferno Trail) - this is the only way Cracked Armor's
+    // real "extends Annihilation Strike/Eruption cooldowns by 20s" interaction (found via
+    // WeakAuras decode, never implemented until now) can actually nudge the timer: native
+    // SmartScript::GetEvents() only exposes a const reference, there's no public API to
+    // adjust a running SmartAI timer from outside. CONFIRMED range from real kill logs,
+    // same value for both the opener and every repeat (smart_scripts id=21's own
+    // event_param1-4, all four were 18000/24000/18000/24000 - no separate opener timing).
+    constexpr uint32 ANNIHILATION_CAST_MIN_MS = 18000;
+    constexpr uint32 ANNIHILATION_CAST_MAX_MS = 24000;
+    // From WeakAuras decode: Cracked Armor's proc, besides the self-debuff, also pushes
+    // Annihilation Strike's and Eruption's next cast back by 20s each time it applies.
+    constexpr uint32 CRACKED_ARMOR_COOLDOWN_EXTEND_MS = 20000;
 
     // Inferno Trail (2108217) and Eruption (2108227) are, like Annihilation Strike,
     // pure SPELL_EFFECT_DUMMY with no native damage/aura in our Spell.dbc - reimplemented here.
@@ -249,6 +262,7 @@ namespace
         bool smolderingVengeanceOpenerApplied = false;
         uint32 infernoTrailNextCast = 0;
         uint32 eruptionNextCast = 0;
+        uint32 annihilationNextCast = 0;
         uint32 moltenBloodNextSpawn = 0;
         uint32 crackedArmorUntil = 0; // 0 = not currently active
         bool hasInfernoTrailDirection = false;
@@ -486,6 +500,26 @@ namespace
         }
     }
 
+    // The real hit (2108207-10) is TARGET_SRC_CASTER + SRC_AREA_ENEMY in the DBC -
+    // confirmed via a raw Spell.dbc parse (2026-10-02) - so casting it straight from
+    // Basalthane centers the 10yd radius on HIM, not on the tank, no matter what unit
+    // is passed as the CastSpell target (that argument is simply unused by this implicit
+    // target pair). User wants this tank-centered instead - same relocation trick as
+    // CastEruptionExplosionAt/CastHeatSplashAt: summon a short-lived invisible
+    // WORLD_TRIGGER at the tank's position and cast from there.
+    void CastAnnihilationHitAt(Unit* caster, Unit* target)
+    {
+        uint32 spellId = AnnihilationHitSpellFor(caster);
+        if (!sSpellMgr->GetSpellInfo(spellId))
+            return;
+
+        if (Creature* trigger = caster->SummonCreature(WORLD_TRIGGER, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), 0.0f, TEMPSUMMON_TIMED_DESPAWN, 1000))
+        {
+            trigger->SetFaction(caster->GetFaction());
+            trigger->CastSpell(trigger, spellId, true);
+        }
+    }
+
     uint32 EruptionExplosionSpellFor(Unit* caster)
     {
         switch (GetDifficultyEntry(caster))
@@ -673,8 +707,9 @@ class spell_basalthane_annihilation_strike : public SpellScript
         if (!caster || !target)
             return;
 
-        // Real native Weapon % Damage hit, per difficulty - handles the 10yd cleave itself
-        caster->CastSpell(target, AnnihilationHitSpellFor(caster), true);
+        // Real native Weapon % Damage hit, per difficulty - relocated to originate from
+        // the tank (see CastAnnihilationHitAt), not from Basalthane.
+        CastAnnihilationHitAt(caster, target);
 
         // Real native stacking debuff - the game handles the icon, stacking and duration
         caster->CastSpell(target, SPELL_ANNIHILATION_DEBUFF, true);
@@ -690,8 +725,18 @@ class spell_basalthane_annihilation_strike : public SpellScript
             caster->CastSpell(caster, SPELL_CRACKED_ARMOR, true);
             if (Creature* boss = caster->ToCreature())
             {
-                StateFor(boss).crackedArmorUntil = uint32(GameTime::GetGameTimeMS().count()) + CRACKED_ARMOR_DURATION_SECONDS * 1000;
+                BasalthaneState& state = StateFor(boss);
+                state.crackedArmorUntil = uint32(GameTime::GetGameTimeMS().count()) + CRACKED_ARMOR_DURATION_SECONDS * 1000;
                 ShatterPillar(boss, pillar);
+
+                // Real interaction (WeakAuras decode): Cracked Armor also pushes back
+                // Annihilation Strike's and Eruption's next cast by 20s each - only if
+                // they're already scheduled (both always are once the boss is in combat,
+                // which is the only way to land this pillar hit in the first place).
+                if (state.annihilationNextCast != 0)
+                    state.annihilationNextCast += CRACKED_ARMOR_COOLDOWN_EXTEND_MS;
+                if (state.eruptionNextCast != 0)
+                    state.eruptionNextCast += CRACKED_ARMOR_COOLDOWN_EXTEND_MS;
             }
         }
     }
@@ -986,6 +1031,7 @@ public:
             state.smolderingVengeanceOpenerApplied = false;
             state.infernoTrailNextCast = 0;
             state.eruptionNextCast = 0;
+            state.annihilationNextCast = 0;
             state.moltenBloodNextSpawn = 0;
             return;
         }
@@ -1084,6 +1130,31 @@ public:
                     bool const ascended = GetDifficultyEntry(creature) == ENTRY_BASALTHANE_ASCENDED;
                     nextEruption = uint32(GameTime::GetGameTimeMS().count()) +
                         (ascended ? ERUPTION_ASCENDED_REPEAT_MS : urand(ERUPTION_REPEAT_MIN_MS, ERUPTION_REPEAT_MAX_MS));
+                }
+            }
+        }
+
+        // Annihilation Strike scheduling (see ANNIHILATION_CAST_MIN_MS comment) - moved
+        // off SmartAI so Cracked Armor can actually nudge the timer. Cast straight onto
+        // CURRENT_GENERIC_SPELL like Eruption/Inferno Trail, so the same "boss already
+        // mid-cast" check applies both ways (this skip here, and the other two treating
+        // Annihilation Strike as a reason to skip their own cycle).
+        {
+            uint32& nextAnnihilation = state.annihilationNextCast;
+            if (nextAnnihilation == 0)
+                nextAnnihilation = uint32(GameTime::GetGameTimeMS().count()) + urand(ANNIHILATION_CAST_MIN_MS, ANNIHILATION_CAST_MAX_MS);
+            else if (uint32(GameTime::GetGameTimeMS().count()) >= nextAnnihilation)
+            {
+                if (creature->GetCurrentSpell(CURRENT_GENERIC_SPELL))
+                {
+                    nextAnnihilation = uint32(GameTime::GetGameTimeMS().count()) + 1000;
+                }
+                else
+                {
+                    if (Unit* tank = creature->GetVictim())
+                        creature->CastSpell(tank, SPELL_ANNIHILATION_STRIKE, false);
+
+                    nextAnnihilation = uint32(GameTime::GetGameTimeMS().count()) + urand(ANNIHILATION_CAST_MIN_MS, ANNIHILATION_CAST_MAX_MS);
                 }
             }
         }
