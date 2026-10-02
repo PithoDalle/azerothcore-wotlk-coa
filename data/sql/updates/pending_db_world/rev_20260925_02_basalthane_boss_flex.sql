@@ -24,24 +24,19 @@
 --   Normal  (24.08, 19 players): 22,343,440 total -> 1,175,972 / player
 --   Heroic  (24.08, 20 players): 40,244,223 total -> 2,012,211 / player
 --   Heroic  (25.08, 13 players): 24,182,108 total -> 1,860,162 / player
---   Mythic  (26.08, 19 players): 54,699,256 total -> 2,878,908 / player
--- Heroic here is the mean of its two kills (1,936,186). Mythic/Heroic
--- measures at 1.49, matching the classic-raid pattern's 1.505 almost
--- exactly - confirms Mythic flexes per-player just like Normal/Heroic, not a
--- flat total regardless of player count. Ascended has no logged kill;
--- extrapolated the same way the classic raids' unlogged difficulties are
--- (Heroic x2.19, same MC pattern) -> 4,240,248 / player.
+--   Mythic  (26.08, 19 players): 54,699,256 total -> 2,878,908 / player (early estimate)
+-- Heroic here is the mean of its two kills (1,936,186).
 --
--- Mythic/Ascended are additionally 25-man-locked (not dynamic flex) - see
--- FlexHealth.cpp's negative-value convention, added specifically to support
--- this - hence the negative hp_d2/hp_d3 here (always x25 regardless of
--- actual headcount; Normal/Heroic stay positive, dynamic 10-25).
-
--- Mythic/Ascended's 25-man-lock needs negative values (see above) - widen the
--- shared table's columns from the module's own INT UNSIGNED to signed INT.
--- Affects every boss using this table, not just Basalthane, but is backward
--- compatible: existing positive values behave exactly as before, only a
--- negative value changes FlexHealth.cpp's behavior (opt-in via sign).
+-- RETUNED 2026-10-02 (user's own call): Mythic/Ascended no longer 25-man-locked -
+-- all four difficulties now flex dynamically with the instance's actual headcount
+-- (clamped 10-25), same as Normal/Heroic. Final per-player values: Mythic 2,478,908,
+-- Ascended 3,412,458 (both revised down from the earlier 25-man-locked estimates).
+--
+-- mod-coa-raid-difficulty's FlexHealth.cpp also supports a negative-value convention
+-- (always x25 regardless of headcount) for bosses that DO want a 25-man lock - not
+-- used here anymore, but the column type stays signed INT (widened from the module's
+-- own INT UNSIGNED) in case another boss on this table wants it; harmless no-op for
+-- any boss using positive values, this one included.
 ALTER TABLE `coa_boss_flex`
     MODIFY `hp_d0` INT NOT NULL DEFAULT 0 COMMENT 'health per player, Normal; 0 no flex',
     MODIFY `hp_d1` INT NOT NULL DEFAULT 0 COMMENT 'Heroic',
@@ -50,4 +45,4 @@ ALTER TABLE `coa_boss_flex`
 
 DELETE FROM `coa_boss_flex` WHERE `entry` IN (10185, 10186, 10187, 10188, 10189, 10190, 10191, 10192);
 INSERT INTO `coa_boss_flex` (`entry`, `hp_d0`, `hp_d1`, `hp_d2`, `hp_d3`, `comment`) VALUES
-(10189, 1175972, 1936186, -2878908, -4240248, 'Basalthane: Normal/Heroic measured and dynamic-flex (10-25); Mythic/Ascended measured/extrapolated and 25-man-locked');
+(10189, 1175972, 1936186, 2478908, 3412458, 'Basalthane: all four difficulties measured/extrapolated and dynamic-flex (10-25 players)');
