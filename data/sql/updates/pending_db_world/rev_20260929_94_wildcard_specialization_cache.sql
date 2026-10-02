@@ -8,11 +8,7 @@ UPDATE `wildcard_specialization_cache` SET
     `name` = 'Specialization Cache (Soulbound)',
     `displayid` = 14575,
     `bonding` = 1,
-    `description` = CONCAT('Contains: \n  \n - 6x Mystic Enchanting: Specialization \n',
-        ' - Tome of Specialization II \n - Tome of Specialization III \n - Tome of Specialization IV \n',
-        ' - Tome of Specialization V \n - Tome of Specialization VI \n  \n',
-        ' |cFFFF5500IMPORTANT:|r Make sure you open this on the character you want to receive the rewards, as the',
-        ' |cFFFF5500contents cannot be transferred or reclaimed.|r'),
+    `description` = 'Contains: 6x Mystic Enchanting: Specialization, Tome of Specialization II-VI. |cFFFF5500IMPORTANT:|r Open on the character you want to receive the rewards - contents cannot be transferred or reclaimed.|r',
     `ScriptName` = 'item_wildcard_specialization_cache';
 INSERT INTO `item_template` SELECT * FROM `wildcard_specialization_cache`
 ON DUPLICATE KEY UPDATE

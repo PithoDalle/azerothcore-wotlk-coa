@@ -5950,7 +5950,7 @@ public:
   void OnPlayerLogin(Player *player) override {
     if (ascensionCompatConfig.GetConfigValue<bool>(
             AscensionCompatConfig::ENABLED)) {
-      SendAscensionCoAXpConfig(player->GetSession());
+      SendAscensionCoAConfig(player->GetSession());
       SendAscensionRealmLevelCap(player->GetSession());
       AscensionClassService::Instance().OnPlayerLogin(player);
       RemoveLegacyQuestSpells(player);
