@@ -28,19 +28,17 @@ VALUES
      6, 0, 1, 0, 0, 0, 0, 0, 0,
      'Basalthane - Eruption (Ascended/D3 override): first at 39s, then every 50s - user wants faster Eruption cadence on Ascended - DISABLED, scheduled from C++'),
     -- Active rows: Berserk (guess, never confirmed), Fierce Blow (confirmed from logs),
-    -- Molten Blood stack gain, and the two ooze-cleanup-on-evade/death actions.
-    (10189, 0, 12, 0, 0, 0, 100, 0, 600000, 600000, 0, 0, 0, 0,
+    -- and the two ooze-cleanup-on-evade/death actions. The old id=14 "gain Molten Blood
+    -- stack while ooze within 10yd" row is gone - replaced entirely by the merge-based
+    -- grant in allcreaturescript_basalthane_ooze_pyroclastic (spell_basalthane.cpp).
+    (10189, 0, 12, 0, 0, 0, 100, 0, 1500000, 1500000, 0, 0, 0, 0,
      11, 2100213, 1, 0, 0, 0, 0,
      1, 0, 0, 0, 0, 0, 0, 0, 0,
-     'Basalthane - GUESS: Berserk after 10 min'),
+     'Basalthane - Berserk after 25 min (user-set 2026-10-02, was a 10 min guess)'),
     (10189, 0, 13, 0, 0, 0, 100, 0, 5000, 15000, 5000, 15000, 0, 0,
      11, 975011, 0, 0, 0, 0, 0,
      2, 0, 0, 0, 0, 0, 0, 0, 0,
      'Basalthane - Fierce Blow on tank every 5-15s (CONFIRMED from real kill logs)'),
-    (10189, 0, 14, 0, 75, 0, 100, 0, 0, 310189, 10, 2000, 0, 0,
-     11, 2108237, 0, 0, 0, 0, 0,
-     1, 0, 0, 0, 0, 0, 0, 0, 0,
-     'Basalthane - gain Molten Blood stack while ooze within 10yd (bumped from 5yd 2026-09-24, boss has 6yd CombatReach so 5yd felt too tight for a boss this size)'),
     (10189, 0, 15, 0, 7, 0, 100, 0, 0, 0, 0, 0, 0, 0,
      41, 0, 0, 0, 0, 0, 0,
      9, 310189, 0, 200, 0, 0, 0, 0, 0,
@@ -65,12 +63,9 @@ VALUES
     (310189, 0, 1, 0, 63, 0, 100, 0, 0, 0, 0, 0, 0, 0,
      29, 3, 0, 10189, 0, 0, 0,
      19, 10189, 200, 0, 0, 0, 0, 0, 0,
-     'Molten Blood - follow Basalthane at 3yd (native MoveFollow, final decision - see project notes: a custom C++ movement class was tried and reverted, native follow is correct here, just with speed_walk/speed_run reduced ~60% to counter its own catch-up acceleration)'),
-    (310189, 0, 2, 0, 75, 0, 100, 0, 0, 10189, 4, 1000, 0, 0,
-     8, 2, 0, 0, 0, 0, 0,
-     1, 10189, 0, 0, 0, 0, 0, 0, 0,
-     'Molten Blood - reached boss: become aggressive/attackable'),
-    (310189, 0, 3, 0, 75, 0, 100, 0, 0, 10189, 4, 1000, 0, 0,
-     29, 0, 0, 0, 0, 0, 0,
-     1, 10189, 0, 0, 0, 0, 0, 0, 0,
-     'Molten Blood - reached boss: stop following, act on own');
+     'Molten Blood - follow Basalthane at 3yd (native MoveFollow, final decision - see project notes: a custom C++ movement class was tried and reverted, native follow is correct here, just with speed_walk/speed_run reduced ~60% to counter its own catch-up acceleration)');
+-- id=2/3 ("reached boss: become aggressive/attackable" / "stop following, act on own",
+-- old 4yd proximity) are gone - the ooze is attackable by players from spawn (hostile
+-- faction, no NON_ATTACKABLE flag), and the old proximity trigger is replaced entirely
+-- by the real-contact merge in allcreaturescript_basalthane_ooze_pyroclastic
+-- (spell_basalthane.cpp) - see the SPELL_PYROCLASTIC_* comment there.

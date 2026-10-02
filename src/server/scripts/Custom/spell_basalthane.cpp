@@ -227,6 +227,37 @@ namespace
     constexpr uint32 MOLTEN_BLOOD_HP_PER_PLAYER_ASCENDED = 19900;
     constexpr uint32 MOLTEN_BLOOD_FLEX_MIN_PLAYERS = 10;
     constexpr uint32 MOLTEN_BLOOD_FLEX_MAX_PLAYERS = 25;
+    // CONFIRMED 2026-10-02 (user's own in-game tooltip check, two screenshots):
+    //  - Pyroclastic Splash (2108241-44, real native School Damage, radius 3yd): "the
+    //    Molten Blood inflicts ... Fire damage to nearby enemies", Procs from Molten
+    //    Blood (2108240, the ooze's own periodic debuff) - but 2108240's own DBC data
+    //    (EffectAuraPeriod 1000ms, EffectTriggerSpell hardcoded to 2108241) only ever
+    //    triggers the D0/Normal Splash regardless of actual difficulty, same class of
+    //    DBC-can't-scale-per-difficulty issue as everywhere else in this encounter -
+    //    driven manually here instead (self-cast 2108240 on the ooze at spawn purely as
+    //    a visible debuff icon/flavor, the real periodic damage is ticked in C++).
+    //  - Pyroclastic Explosion (2108245-48, radius 100yd/room-wide): "The Molten Blood
+    //    merges with Basalthane in a violent explosion", Cast by NPCs: Molten Blood -
+    //    fires when the ooze actually reaches/touches the boss (not the old 4yd
+    //    "become aggressive" proximity - real contact range). The ooze is consumed
+    //    (dies) in the same moment; Basalthane gains a Molten Blood stack (2108237)
+    //    from the merge instead of the old continuous "stack while ooze within 10yd"
+    //    mechanic, which this replaces entirely.
+    // The ooze is attackable by players from spawn (already hostile faction, no
+    // NON_ATTACKABLE flag) - the old SmartAI "become aggressive at 4yd"/"stop following"
+    // rows are obsolete under this design and were removed from smart_scripts.
+    constexpr uint32 SPELL_MOLTEN_BLOOD_SELF_BUFF = 2108237;
+    constexpr uint32 SPELL_MOLTEN_BLOOD_DEBUFF = 2108240;
+    constexpr uint32 SPELL_PYROCLASTIC_SPLASH_D0 = 2108241;
+    constexpr uint32 SPELL_PYROCLASTIC_SPLASH_D1 = 2108242;
+    constexpr uint32 SPELL_PYROCLASTIC_SPLASH_D2 = 2108243;
+    constexpr uint32 SPELL_PYROCLASTIC_SPLASH_D3 = 2108244;
+    constexpr uint32 SPELL_PYROCLASTIC_EXPLOSION_D0 = 2108245;
+    constexpr uint32 SPELL_PYROCLASTIC_EXPLOSION_D1 = 2108246;
+    constexpr uint32 SPELL_PYROCLASTIC_EXPLOSION_D2 = 2108247;
+    constexpr uint32 SPELL_PYROCLASTIC_EXPLOSION_D3 = 2108248;
+    constexpr uint32 MOLTEN_BLOOD_SPLASH_TICK_MS = 1000;
+    constexpr float MOLTEN_BLOOD_MERGE_RANGE = 1.5f; // real contact, not the old 4yd proximity
     constexpr float ANNIHILATION_PILLAR_RANGE = 6.0f; // GUESS
     constexpr uint32 SPELL_IGNEOUS_IMPACT = 2108212;
     constexpr uint32 SPELL_CAUGHT_IN_THE_BLAST = 2108216;
@@ -426,6 +457,28 @@ namespace
         }
     }
 
+    uint32 PyroclasticSplashSpellFor(uint32 difficultyEntry)
+    {
+        switch (difficultyEntry)
+        {
+            case ENTRY_BASALTHANE_HEROIC:   return SPELL_PYROCLASTIC_SPLASH_D1;
+            case ENTRY_BASALTHANE_MYTHIC:   return SPELL_PYROCLASTIC_SPLASH_D2;
+            case ENTRY_BASALTHANE_ASCENDED: return SPELL_PYROCLASTIC_SPLASH_D3;
+            default:                        return SPELL_PYROCLASTIC_SPLASH_D0;
+        }
+    }
+
+    uint32 PyroclasticExplosionSpellFor(uint32 difficultyEntry)
+    {
+        switch (difficultyEntry)
+        {
+            case ENTRY_BASALTHANE_HEROIC:   return SPELL_PYROCLASTIC_EXPLOSION_D1;
+            case ENTRY_BASALTHANE_MYTHIC:   return SPELL_PYROCLASTIC_EXPLOSION_D2;
+            case ENTRY_BASALTHANE_ASCENDED: return SPELL_PYROCLASTIC_EXPLOSION_D3;
+            default:                        return SPELL_PYROCLASTIC_EXPLOSION_D0;
+        }
+    }
+
     // Same per-player headcount rule as mod-coa-raid-difficulty's own CountPlayers:
     // every non-GM player in the map, clamped 10-25.
     uint32 CountFlexPlayers(Map* map)
@@ -458,6 +511,10 @@ namespace
         {
             ooze->SetDisableGravity(true);
             ApplyMoltenBloodFlexHealth(boss, ooze);
+            // Visible debuff icon matching real tooltip data - the actual periodic
+            // Pyroclastic Splash damage is ticked manually, see
+            // allcreaturescript_basalthane_ooze_pyroclastic below.
+            ooze->CastSpell(ooze, SPELL_MOLTEN_BLOOD_DEBUFF, true);
         }
     }
 
@@ -1623,6 +1680,61 @@ private:
     };
 };
 
+// CONFIRMED 2026-10-02 (user's own in-game tooltip check) - see the SPELL_MOLTEN_BLOOD_*/
+// SPELL_PYROCLASTIC_* comment above for the full mechanic. Two things every tick:
+//  1. Real contact with the boss (MOLTEN_BLOOD_MERGE_RANGE) - merge: Pyroclastic
+//     Explosion from the ooze's own position (room-wide), Basalthane gains a Molten
+//     Blood stack, the ooze dies. Replaces the old smart_scripts "become aggressive at
+//     4yd" rows and the old "gain stack while within 10yd" row entirely.
+//  2. Otherwise, a periodic Pyroclastic Splash tick from the ooze's own position (see
+//     SPELL_MOLTEN_BLOOD_DEBUFF's comment for why this is driven manually).
+constexpr char OOZE_PYROCLASTIC_STATE_KEY[] = "custom.basalthane.ooze_pyroclastic";
+
+class allcreaturescript_basalthane_ooze_pyroclastic : public AllCreatureScript
+{
+public:
+    allcreaturescript_basalthane_ooze_pyroclastic() : AllCreatureScript("allcreaturescript_basalthane_ooze_pyroclastic") { }
+
+    void OnAllCreatureUpdate(Creature* creature, uint32 /*diff*/) override
+    {
+        if (creature->GetEntry() != ENTRY_MOLTEN_BLOOD_OOZE || !creature->IsAlive())
+            return;
+
+        Creature* boss = creature->FindNearestCreature(ENTRY_BASALTHANE_NORMAL, 200.0f);
+        if (!boss)
+            return;
+
+        uint32 difficultyEntry = GetDifficultyEntry(boss);
+
+        if (creature->GetDistance(boss) <= MOLTEN_BLOOD_MERGE_RANGE)
+        {
+            creature->CastSpell(creature, PyroclasticExplosionSpellFor(difficultyEntry), true);
+            boss->CastSpell(boss, SPELL_MOLTEN_BLOOD_SELF_BUFF, true);
+            creature->KillSelf();
+            return;
+        }
+
+        PyroclasticSplashState& state = *creature->CustomData.GetDefault<PyroclasticSplashState>(OOZE_PYROCLASTIC_STATE_KEY);
+        uint32 now = uint32(GameTime::GetGameTimeMS().count());
+        if (now < state.nextSplashTick)
+            return;
+        state.nextSplashTick = now + MOLTEN_BLOOD_SPLASH_TICK_MS;
+
+        if (SpellInfo const* splash = sSpellMgr->GetSpellInfo(PyroclasticSplashSpellFor(difficultyEntry)))
+        {
+            SpellCastTargets targets;
+            targets.SetDst(creature->GetPositionX(), creature->GetPositionY(), creature->GetPositionZ(), 0.0f);
+            creature->CastSpell(targets, splash, nullptr, TRIGGERED_FULL_MASK);
+        }
+    }
+
+private:
+    struct PyroclasticSplashState : DataMap::Base
+    {
+        uint32 nextSplashTick = 0;
+    };
+};
+
 void AddSC_spell_basalthane()
 {
     RegisterSpellScript(spell_basalthane_annihilation_strike);
@@ -1632,6 +1744,7 @@ void AddSC_spell_basalthane()
     RegisterSpellScript(spell_basalthane_inferno_trail_hit_visual_only);
     new playerscript_basalthane_annihilation_cleanup();
     new allcreaturescript_basalthane_cleanup();
+    new allcreaturescript_basalthane_ooze_pyroclastic();
     // Custom manual movement disabled again 2026-09-30 (second time same day) -
     // even with the room's terrain fixed by fresh vmaps/mmaps, the NearTeleportTo-
     // every-200ms approach itself visibly lags. Back to native SmartAI MoveFollow
