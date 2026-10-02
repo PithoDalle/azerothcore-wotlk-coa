@@ -230,12 +230,16 @@ namespace
     // CONFIRMED 2026-10-02 (user's own in-game tooltip check, two screenshots):
     //  - Pyroclastic Splash (2108241-44, real native School Damage, radius 3yd): "the
     //    Molten Blood inflicts ... Fire damage to nearby enemies", Procs from Molten
-    //    Blood (2108240, the ooze's own periodic debuff) - but 2108240's own DBC data
-    //    (EffectAuraPeriod 1000ms, EffectTriggerSpell hardcoded to 2108241) only ever
-    //    triggers the D0/Normal Splash regardless of actual difficulty, same class of
-    //    DBC-can't-scale-per-difficulty issue as everywhere else in this encounter -
-    //    driven manually here instead (self-cast 2108240 on the ooze at spawn purely as
-    //    a visible debuff icon/flavor, the real periodic damage is ticked in C++).
+    //    Blood (2108240, the ooze's own periodic debuff). Deliberately NOT applying
+    //    2108240 itself: its DBC data (EffectAuraPeriod 1000ms, EffectTriggerSpell
+    //    hardcoded to 2108241) fires its own native periodic trigger the instant it's
+    //    applied, always the D0/Normal Splash regardless of actual difficulty - an
+    //    earlier version of this file self-cast it anyway "just for the icon," which an
+    //    external review caught as a real double-proc bug (Normal got it twice;
+    //    Heroic+ got a correct tick plus an extra wrong-strength Normal one). Splash
+    //    damage is driven entirely by the manual per-difficulty timer in
+    //    allcreaturescript_basalthane_ooze_pyroclastic below instead - no native trigger
+    //    involved at all, so no icon, but also no way for the two to double up again.
     //  - Pyroclastic Explosion (2108245-48, radius 100yd/room-wide): "The Molten Blood
     //    merges with Basalthane in a violent explosion", Cast by NPCs: Molten Blood -
     //    fires when the ooze actually reaches/touches the boss (not the old 4yd
@@ -247,7 +251,6 @@ namespace
     // NON_ATTACKABLE flag) - the old SmartAI "become aggressive at 4yd"/"stop following"
     // rows are obsolete under this design and were removed from smart_scripts.
     constexpr uint32 SPELL_MOLTEN_BLOOD_SELF_BUFF = 2108237;
-    constexpr uint32 SPELL_MOLTEN_BLOOD_DEBUFF = 2108240;
     constexpr uint32 SPELL_PYROCLASTIC_SPLASH_D0 = 2108241;
     constexpr uint32 SPELL_PYROCLASTIC_SPLASH_D1 = 2108242;
     constexpr uint32 SPELL_PYROCLASTIC_SPLASH_D2 = 2108243;
@@ -511,10 +514,17 @@ namespace
         {
             ooze->SetDisableGravity(true);
             ApplyMoltenBloodFlexHealth(boss, ooze);
-            // Visible debuff icon matching real tooltip data - the actual periodic
-            // Pyroclastic Splash damage is ticked manually, see
-            // allcreaturescript_basalthane_ooze_pyroclastic below.
-            ooze->CastSpell(ooze, SPELL_MOLTEN_BLOOD_DEBUFF, true);
+            // CORRECTED 2026-10-02 (external review caught a real bug): this used to
+            // also self-cast SPELL_MOLTEN_BLOOD_DEBUFF (2108240) here purely for its
+            // visible icon, but that spell's own DBC data has a real periodic trigger
+            // baked in (EffectAuraPeriod 1000ms, EffectTriggerSpell hardcoded to the
+            // D0/Normal Pyroclastic Splash) - applying it ALSO independently fires the
+            // native trigger every second, on top of the manual per-difficulty tick in
+            // allcreaturescript_basalthane_ooze_pyroclastic below. Normal got duplicate
+            // ticks; Heroic/Mythic/Ascended got an extra wrong-strength Normal tick on
+            // top of the correct one. The icon was cosmetic only and isn't needed for
+            // the real damage (the manual timer fully handles that), so removed
+            // entirely rather than fighting the native trigger with an AuraScript.
         }
     }
 
@@ -1687,7 +1697,8 @@ private:
 //     Blood stack, the ooze dies. Replaces the old smart_scripts "become aggressive at
 //     4yd" rows and the old "gain stack while within 10yd" row entirely.
 //  2. Otherwise, a periodic Pyroclastic Splash tick from the ooze's own position (see
-//     SPELL_MOLTEN_BLOOD_DEBUFF's comment for why this is driven manually).
+//     SPELL_MOLTEN_BLOOD_SELF_BUFF's comment above for why this is driven manually
+//     instead of relying on 2108240's own native periodic trigger).
 constexpr char OOZE_PYROCLASTIC_STATE_KEY[] = "custom.basalthane.ooze_pyroclastic";
 
 class allcreaturescript_basalthane_ooze_pyroclastic : public AllCreatureScript
