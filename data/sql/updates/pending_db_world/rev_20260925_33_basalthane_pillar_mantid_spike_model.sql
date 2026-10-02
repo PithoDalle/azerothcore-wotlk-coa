@@ -21,15 +21,12 @@
 -- in-game. The 3 pillar spawns (guids 6901536-6901538) are repointed at it;
 -- 68371 itself is untouched in case anything else references it.
 
-DELETE FROM `gameobject_template` WHERE `entry` = 9500100;
+-- No DELETE (gameobject_template entries are never deleted, per codestyle) - INSERT
+-- IGNORE on the final clone is correct for a fresh install and safe to replay.
 DROP TEMPORARY TABLE IF EXISTS `basalthane_pillar_tier`;
-CREATE TEMPORARY TABLE `basalthane_pillar_tier` AS
-    SELECT * FROM `gameobject_template` WHERE `entry` = 68371;
-UPDATE `basalthane_pillar_tier`
-   SET `entry` = 9500100,
-       `displayId` = 9500100,
-       `name` = 'Basalthane Pillar (Mantid Spike)';
-INSERT INTO `gameobject_template` SELECT * FROM `basalthane_pillar_tier`;
+CREATE TEMPORARY TABLE `basalthane_pillar_tier` AS SELECT * FROM `gameobject_template` WHERE `entry` = 68371;
+UPDATE `basalthane_pillar_tier` SET `entry` = 9500100, `displayId` = 9500100, `name` = 'Basalthane Pillar (Mantid Spike)';
+INSERT IGNORE INTO `gameobject_template` SELECT * FROM `basalthane_pillar_tier`;
 DROP TEMPORARY TABLE `basalthane_pillar_tier`;
 
 UPDATE `gameobject` SET `id` = 9500100 WHERE `guid` IN (6901536, 6901537, 6901538);
