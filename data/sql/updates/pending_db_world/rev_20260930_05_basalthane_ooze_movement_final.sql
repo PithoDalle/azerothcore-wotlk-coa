@@ -9,14 +9,10 @@
 -- countered the catch-up boost by slowing the ooze's own base speed down:
 -- first pass -40% (1 -> 0.4, 1.14286 -> 0.457144), then a further -10% on top
 -- after live testing confirmed movement was smooth but still slightly too
--- fast (-> 0.36, 0.4114296 net, ~64% of original). Re-enabled the native
--- follow row that AddSC_spell_basalthane's custom movement class replaces
--- (event_chance back to 100) to match -- see the C++ side comment in
--- spell_basalthane.cpp's AddSC_spell_basalthane() for the disabled
--- registration line.
-
-UPDATE `smart_scripts` SET `event_chance` = 100
-WHERE `entryorguid` = 310189 AND `source_type` = 0 AND `id` = 1;
+-- fast (-> 0.36, 0.4114296 net, ~64% of original). The native follow row
+-- itself (id=1, event_chance=100, active) is established by
+-- rev_20261002_04_basalthane_smartai_full_block_consolidation.sql's full
+-- DELETE+INSERT block, not here.
 
 UPDATE `creature_template` SET `speed_walk` = 0.36, `speed_run` = 0.4114296
 WHERE `entry` = 310189;

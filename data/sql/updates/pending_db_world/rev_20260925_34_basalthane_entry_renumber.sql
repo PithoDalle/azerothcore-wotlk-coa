@@ -31,9 +31,11 @@ UPDATE `creature_template_movement` SET
     `CreatureId` = CASE `CreatureId` WHEN 10185 THEN 10189 WHEN 10186 THEN 10190 WHEN 10187 THEN 10191 WHEN 10188 THEN 10192 END
 WHERE `CreatureId` IN (10185,10186,10187,10188);
 
-UPDATE `smart_scripts` SET
-    `entryorguid` = CASE `entryorguid` WHEN 10185 THEN 10189 WHEN 10186 THEN 10190 WHEN 10187 THEN 10191 WHEN 10188 THEN 10192 END
-WHERE `entryorguid` IN (10185,10186,10187,10188) AND `source_type` = 0;
+-- smart_scripts for entryorguid 10185-10188/10189-10192 is established fresh by
+-- rev_20261002_04_basalthane_smartai_full_block_consolidation.sql as a full
+-- DELETE+INSERT (per .agents/docs/sql-guidelines.md, smart_scripts edits never use a
+-- partial UPDATE) - no rename needed here, that file owns the complete final state
+-- regardless of what entry numbers existed before it runs.
 
 UPDATE `coa_boss_flex` SET
     `entry` = CASE `entry` WHEN 10185 THEN 10189 WHEN 10186 THEN 10190 WHEN 10187 THEN 10191 WHEN 10188 THEN 10192 END

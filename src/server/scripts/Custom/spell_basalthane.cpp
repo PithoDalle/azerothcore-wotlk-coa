@@ -326,7 +326,7 @@ namespace
         bool hasInfernoTrailDirection = false;
         float infernoTrailDirX = 0.0f;
         float infernoTrailDirY = 0.0f;
-        std::unordered_set<ObjectGuid> hiddenPillars;
+        std::unordered_set<ObjectGuid::LowType> hiddenPillars;
         Spell* lastGenericSpell = nullptr;
     };
 
@@ -485,37 +485,38 @@ namespace
         }
     }
 
-    // CORRECTED 2026-10-02 (external review): KillSelf() alone left two real problems -
-    // the dead pillar's corpse model stayed visible until its normal corpse-decay timer
-    // ran out, and the DB-side spawntimesecs=86400 "suppress the natural respawn" fix
-    // (rev_20260930_10) silently never applied because it targeted stale guids
-    // (9650001-3) left over from an old renumbering that was never carried through to
-    // this live DB - the pillars are still spawned at 9500001-3. Fixed both directly in
-    // C++ instead of depending on the DB column at all: force the corpse to decay
-    // immediately (no lingering model) and override the respawn timer to a week out, so
-    // the only way a shattered pillar comes back is RestorePillar()'s explicit
-    // Respawn(true) on wipe/evade - never the pillar's own timer, never on a kill.
+    // CORRECTED 2026-10-02, twice (external review): first pass used KillSelf() +
+    // SetCorpseRemoveTime(0) + SetRespawnTime(), which fixed the lingering-corpse
+    // complaint but broke restoration outright - this server runs dynamic respawn mode
+    // (Respawn.ForceCompatibilityMode = 0, confirmed in worldserver.conf), where
+    // Creature::RemoveCorpse() doesn't just hide a dead creature, it DESTROYS the object
+    // and removes it from the map entirely; a fresh one only gets created later by
+    // Map::ProcessCreatureRespawn() when something actually triggers a respawn.
+    // RestorePillar() resolving the stored ObjectGuid via ObjectAccessor::GetCreature()
+    // would find nothing once the object is gone, so Respawn(true) silently never fired
+    // - a real regression the reviewer traced before it was ever tested live. Fixed for
+    // real this time: track the pillar's spawn ID (stable across the object being
+    // destroyed/recreated) instead of its live ObjectGuid, and restore via
+    // Map::ProcessCreatureRespawn() - the same spawn-ID-based respawn machinery AC's own
+    // respawn timer uses, called directly instead of waiting for the timer.
     void ShatterPillar(Creature* boss, Creature* pillar)
     {
-        StateFor(boss).hiddenPillars.insert(pillar->GetGUID());
+        StateFor(boss).hiddenPillars.insert(pillar->GetSpawnId());
         pillar->KillSelf();
         pillar->SetCorpseRemoveTime(0);
-        pillar->SetRespawnTime(7 * 24 * 3600);
     }
 
-    void RestorePillar(Unit* context, ObjectGuid guid)
+    void RestorePillar(Map* map, ObjectGuid::LowType spawnId)
     {
-        if (Creature* pillar = ObjectAccessor::GetCreature(*context, guid))
-            if (!pillar->IsAlive())
-                pillar->Respawn(true);
+        map->ProcessCreatureRespawn(spawnId);
     }
 
     // Restores every currently-shattered pillar immediately (wipe/kill/evade)
     void RestoreAllPillars(Creature* boss)
     {
         BasalthaneState& state = StateFor(boss);
-        for (ObjectGuid const& guid : state.hiddenPillars)
-            RestorePillar(boss, guid);
+        for (ObjectGuid::LowType spawnId : state.hiddenPillars)
+            RestorePillar(boss->GetMap(), spawnId);
         state.hiddenPillars.clear();
     }
 

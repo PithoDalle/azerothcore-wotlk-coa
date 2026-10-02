@@ -1,13 +1,12 @@
--- Consolidates Basalthane's and the Molten Blood ooze's smart_scripts blocks into
--- proper full DELETE + INSERT replacements (per .agents/docs/sql-guidelines.md:
--- "smart_scripts edits always rewrite the full block ... never a partial UPDATE, not
--- even for a comment-only fix"). Several earlier migrations in this chain
--- (rev_20260925_34, rev_20260930_03/04/05/13) patched individual rows in place instead -
--- functionally correct (this is the exact state those migrations, applied in order,
--- already produce), but not compliant with the written convention. Rather than rewrite
--- each historical file (high risk of introducing a new regression this late, for a
--- style-only fix with no automated lint catching it), this single migration establishes
--- the complete, final, convention-compliant state for both blocks going forward.
+-- Establishes the complete, final smart_scripts state for both Basalthane (10189) and
+-- the Molten Blood ooze (310189), source_type 0, as proper full DELETE + INSERT
+-- replacements (per .agents/docs/sql-guidelines.md: "smart_scripts edits always rewrite
+-- the full block ... never a partial UPDATE, not even for a comment-only fix"). Several
+-- earlier migrations in this chain (rev_20260925_34, rev_20260930_03/04/05/13) used to
+-- patch individual rows in place instead; since this whole chain is unmerged pending
+-- migration data (not live migration history anyone has applied), those partial UPDATEs
+-- were removed from the earlier files entirely rather than left in place - this file is
+-- now the single source of truth for both blocks' smart_scripts content.
 
 DELETE FROM `smart_scripts` WHERE `entryorguid` = 10189 AND `source_type` = 0;
 INSERT INTO `smart_scripts`
