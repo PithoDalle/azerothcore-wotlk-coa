@@ -178,13 +178,13 @@ namespace
     // different when it shatters, beyond the shared Igneous Impact/Caught in the Blast/
     // Cracked Armor/Flash Burn-clear package every pillar gets:
     //  - Searing shattering -> Blistering Trauma (see SPELL_BLISTERING_TRAUMA above)
-    //  - Crumbling shattering -> 6 Molten Blood oozes total, in waves every 3s, each
+    //  - Crumbling shattering -> 6 Molten Blood oozes total, in waves every 5s, each
     //    wave randomly 1 or 2 oozes - when a wave is 2, they go to DIFFERENT points
     //    (never both at once on the same spot), drawn from the 2 farthest-from-boss
     //    points (pool size 2, matching the max wave size of 2).
-    //  - Volatile shattering -> 30 Molten Blood oozes total, in waves every 2s, each
-    //    wave a FIXED 3 oozes, one at each of the 3 farthest-from-boss points (pool
-    //    size 3, matching the fixed wave size of 3 - same "pool size == max wave size,
+    //  - Volatile shattering -> 30 Molten Blood oozes total, in waves every 5s, each
+    //    wave randomly 2 or 3 oozes, drawn from the 3 farthest-from-boss points (pool
+    //    size 3, matching the max wave size of 3 - same "pool size == max wave size,
     //    no point repeats within a wave" rule as Crumbling, just with bigger numbers).
     // This is fully ADDITIVE to - not a replacement for - the independent periodic
     // spawner (MOLTEN_BLOOD_SPAWN_INTERVAL_MIN/MAX_MS below): both run at the same time,
@@ -198,11 +198,16 @@ namespace
     // than adding a second parallel wave tracker for it.
     constexpr int PILLAR_BLOB_TOTAL_CRUMBLING = 6;
     constexpr int PILLAR_BLOB_TOTAL_VOLATILE = 30;
-    constexpr uint32 PILLAR_BLOB_INTERVAL_CRUMBLING_MS = 3000;
-    constexpr uint32 PILLAR_BLOB_INTERVAL_VOLATILE_MS = 2000;
+    // Retuned 2026-10-02 (user corrected after double-checking with someone who ran this
+    // on real Ascension): both intervals are 5s, and Volatile's wave size is random 2-3
+    // (not a fixed 3) - its pool stays at 3 farthest points, same no-repeats-within-a-
+    // wave rule, just the actual spawn count per wave varies now like Crumbling's does.
+    constexpr uint32 PILLAR_BLOB_INTERVAL_CRUMBLING_MS = 5000;
+    constexpr uint32 PILLAR_BLOB_INTERVAL_VOLATILE_MS = 5000;
     constexpr int PILLAR_BLOB_WAVE_MIN_CRUMBLING = 1;
     constexpr int PILLAR_BLOB_WAVE_MAX_CRUMBLING = 2;
-    constexpr int PILLAR_BLOB_WAVE_FIXED_VOLATILE = 3;
+    constexpr int PILLAR_BLOB_WAVE_MIN_VOLATILE = 2;
+    constexpr int PILLAR_BLOB_WAVE_MAX_VOLATILE = 3;
     constexpr uint32 ENTRY_MOLTEN_BLOOD_OOZE = 310189; // reverted after diagnostic test 2026-09-24 confirmed entry 68 worked normally (spawned, stayed visible, despawned after the expected ~90s timer) - the bug is specific to 310189's own config, not the spawn mechanism/room/grid. Prime suspect: its model (DisplayID 60375, creature_model_info BoundingRadius 0.5/CombatReach 1.5) may be broken/invisible on this custom client.
     constexpr float ANNIHILATION_PILLAR_RANGE = 6.0f; // GUESS
     constexpr uint32 SPELL_IGNEOUS_IMPACT = 2108212;
@@ -864,8 +869,8 @@ class spell_basalthane_annihilation_strike : public SpellScript
                         state.pillarBlobsRemaining = PILLAR_BLOB_TOTAL_VOLATILE;
                         state.pillarBlobIntervalMs = PILLAR_BLOB_INTERVAL_VOLATILE_MS;
                         state.pillarBlobPoolSize = 3;
-                        state.pillarBlobWaveMin = PILLAR_BLOB_WAVE_FIXED_VOLATILE;
-                        state.pillarBlobWaveMax = PILLAR_BLOB_WAVE_FIXED_VOLATILE;
+                        state.pillarBlobWaveMin = PILLAR_BLOB_WAVE_MIN_VOLATILE;
+                        state.pillarBlobWaveMax = PILLAR_BLOB_WAVE_MAX_VOLATILE;
                         state.pillarBlobNextSpawn = uint32(GameTime::GetGameTimeMS().count());
                         break;
                     default:
