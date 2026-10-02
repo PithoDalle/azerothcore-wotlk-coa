@@ -110,6 +110,18 @@ namespace
     constexpr uint32 SPELL_INFERNO_TRAIL_HIT_D2 = 2108221;
     constexpr uint32 SPELL_INFERNO_TRAIL_HIT_D3 = 2108222;
     constexpr uint32 SPELL_CRACKED_ARMOR = 2108234;
+    // Real native area-aura-enemy (Fire), confirmed via a raw Spell.dbc parse 2026-10-02:
+    // Effect 1 is SPELL_EFFECT_APPLY_AREA_AURA_ENEMY (-50% healing done, radius 500yd -
+    // effectively room-wide) + Effect 3 is a self-only SPELL_AURA_DUMMY marker on the
+    // caster - both implicit-targeted TARGET_UNIT_CASTER, so (unlike Heat Splash/the
+    // Annihilation hit) this one's correctly centered already with a plain self-cast, no
+    // WORLD_TRIGGER relocation needed. DurationIndex -1 = permanent/infinite, confirmed
+    // from a real kill log (applied, never expired on its own, only gone because the boss
+    // died) - needs explicit removal in ClearAllBasalthaneDebuffs like Flash Burn.
+    // CONFIRMED (2026-10-02, user's own combat-log dig): only triggers when the SEARING
+    // pillar specifically shatters (not Crumbling/Volatile) - see the pillar-type branch
+    // in spell_basalthane_annihilation_strike::HandleDummy.
+    constexpr uint32 SPELL_BLISTERING_TRAUMA = 2108236;
 
     constexpr uint32 SPELL_ERUPTION = 2108227;
     constexpr uint32 SPELL_ERUPTION_PRE = 2108239; // "Eruption - Hidden - Pre", real cast-start telegraph
@@ -157,10 +169,40 @@ namespace
     // means killing the creature outright (KillSelf(), no combat/damage math needed -
     // they're UNIT_FLAG_NON_ATTACKABLE so nothing else can touch them) rather than
     // phase-hiding a gameobject.
-    constexpr uint32 ENTRY_PILLAR_1 = 10186;
-    constexpr uint32 ENTRY_PILLAR_2 = 10187;
-    constexpr uint32 ENTRY_PILLAR_3 = 10188;
+    constexpr uint32 ENTRY_PILLAR_1 = 10186; // Volatile Pillar
+    constexpr uint32 ENTRY_PILLAR_2 = 10187; // Crumbling Pillar
+    constexpr uint32 ENTRY_PILLAR_3 = 10188; // Searing Pillar
     constexpr uint32 PILLAR_ENTRIES[] = { ENTRY_PILLAR_1, ENTRY_PILLAR_2, ENTRY_PILLAR_3 };
+    // CONFIRMED 2026-10-02 (user's own in-game knowledge, later refined after they asked
+    // someone who ran this encounter on real Ascension): each pillar does something
+    // different when it shatters, beyond the shared Igneous Impact/Caught in the Blast/
+    // Cracked Armor/Flash Burn-clear package every pillar gets:
+    //  - Searing shattering -> Blistering Trauma (see SPELL_BLISTERING_TRAUMA above)
+    //  - Crumbling shattering -> 6 Molten Blood oozes total, in waves every 3s, each
+    //    wave randomly 1 or 2 oozes - when a wave is 2, they go to DIFFERENT points
+    //    (never both at once on the same spot), drawn from the 2 farthest-from-boss
+    //    points (pool size 2, matching the max wave size of 2).
+    //  - Volatile shattering -> 30 Molten Blood oozes total, in waves every 2s, each
+    //    wave a FIXED 3 oozes, one at each of the 3 farthest-from-boss points (pool
+    //    size 3, matching the fixed wave size of 3 - same "pool size == max wave size,
+    //    no point repeats within a wave" rule as Crumbling, just with bigger numbers).
+    // This is fully ADDITIVE to - not a replacement for - the independent periodic
+    // spawner (MOLTEN_BLOOD_SPAWN_INTERVAL_MIN/MAX_MS below): both run at the same time,
+    // confirmed by the user explicitly ("den normale spawn timer kører stadig i
+    // baggrunden, de er independant").
+    // NOTE: only one pillar's blob-wave state is tracked at a time (BasalthaneState has
+    // a single pillarBlobs* set, not per-pillar-type) - if a second pillar shatters
+    // while an earlier one's wave sequence is still running, the new one overwrites the
+    // old one's remaining count. Pillars don't respawn mid-fight so this can only happen
+    // with 2-3 overlapping bursts in the same pull; accepted as a rare edge case rather
+    // than adding a second parallel wave tracker for it.
+    constexpr int PILLAR_BLOB_TOTAL_CRUMBLING = 6;
+    constexpr int PILLAR_BLOB_TOTAL_VOLATILE = 30;
+    constexpr uint32 PILLAR_BLOB_INTERVAL_CRUMBLING_MS = 3000;
+    constexpr uint32 PILLAR_BLOB_INTERVAL_VOLATILE_MS = 2000;
+    constexpr int PILLAR_BLOB_WAVE_MIN_CRUMBLING = 1;
+    constexpr int PILLAR_BLOB_WAVE_MAX_CRUMBLING = 2;
+    constexpr int PILLAR_BLOB_WAVE_FIXED_VOLATILE = 3;
     constexpr uint32 ENTRY_MOLTEN_BLOOD_OOZE = 310189; // reverted after diagnostic test 2026-09-24 confirmed entry 68 worked normally (spawned, stayed visible, despawned after the expected ~90s timer) - the bug is specific to 310189's own config, not the spawn mechanism/room/grid. Prime suspect: its model (DisplayID 60375, creature_model_info BoundingRadius 0.5/CombatReach 1.5) may be broken/invisible on this custom client.
     constexpr float ANNIHILATION_PILLAR_RANGE = 6.0f; // GUESS
     constexpr uint32 SPELL_IGNEOUS_IMPACT = 2108212;
@@ -264,6 +306,17 @@ namespace
         uint32 eruptionNextCast = 0;
         uint32 annihilationNextCast = 0;
         uint32 moltenBloodNextSpawn = 0;
+        // Pillar-triggered blob burst (Crumbling/Volatile shattering) - independent of
+        // moltenBloodNextSpawn above, see PILLAR_BLOB_* comment. 0 remaining = idle.
+        // pool/interval/wave-size are copied in from the PILLAR_BLOB_* constants for
+        // whichever pillar type triggered the active burst (see the NOTE on only one
+        // burst being tracked at a time).
+        int pillarBlobsRemaining = 0;
+        uint32 pillarBlobNextSpawn = 0;
+        uint32 pillarBlobIntervalMs = 0;
+        size_t pillarBlobPoolSize = 0;
+        int pillarBlobWaveMin = 0;
+        int pillarBlobWaveMax = 0;
         uint32 crackedArmorUntil = 0; // 0 = not currently active
         bool hasInfernoTrailDirection = false;
         float infernoTrailDirX = 0.0f;
@@ -279,25 +332,26 @@ namespace
         return *boss->CustomData.GetDefault<BasalthaneState>(BASALTHANE_STATE_KEY);
     }
 
-    void SpawnMoltenBloodAtFarthestPoint(Creature* boss)
+    // This custom room straddles a map grid boundary (some of the 10 points sit in
+    // a different grid than Basalthane's own). CONFIRMED 2026-09-24: an ooze spawned
+    // in a grid that isn't currently loaded still exists and functions server-side
+    // (it kept granting Molten Blood stacks to the boss - visible as stacks climbing
+    // on him) but is invisible to players, which read as "despawns instantly" until
+    // the boss buff gave it away. Only consider points whose grid is actually loaded
+    // right now, so we never place one somewhere players can't see it.
+    //
+    // pointCount: how many of the farthest-from-boss candidates to return - 3 for the
+    // regular periodic spawner, 2 or 3 for a pillar-triggered blob wave depending on
+    // pillar type (see PILLAR_BLOB_* comment above).
+    std::vector<MoltenBloodSpawnPoint const*> FarthestLoadedMoltenBloodPoints(Creature* boss, size_t pointCount)
     {
         float bx = boss->GetPositionX();
         float by = boss->GetPositionY();
 
-        // This custom room straddles a map grid boundary (some of the 10 points sit in
-        // a different grid than Basalthane's own). CONFIRMED 2026-09-24: an ooze spawned
-        // in a grid that isn't currently loaded still exists and functions server-side
-        // (it kept granting Molten Blood stacks to the boss - visible as stacks climbing
-        // on him) but is invisible to players, which read as "despawns instantly" until
-        // the boss buff gave it away. Only consider points whose grid is actually loaded
-        // right now, so we never place one somewhere players can't see it.
         std::vector<MoltenBloodSpawnPoint const*> byDistance;
         for (auto const& pt : MOLTEN_BLOOD_SPAWN_POINTS)
             if (boss->GetMap()->IsGridLoaded(pt.x, pt.y))
                 byDistance.push_back(&pt);
-
-        if (byDistance.empty())
-            return;
 
         std::sort(byDistance.begin(), byDistance.end(), [bx, by](MoltenBloodSpawnPoint const* a, MoltenBloodSpawnPoint const* b)
         {
@@ -306,26 +360,56 @@ namespace
             return da > db;
         });
 
-        std::vector<MoltenBloodSpawnPoint const*> farthestThree(byDistance.begin(), byDistance.begin() + std::min<size_t>(3, byDistance.size()));
-        MoltenBloodSpawnPoint const* chosen = Acore::Containers::SelectRandomContainerElement(farthestThree);
+        if (byDistance.size() > pointCount)
+            byDistance.resize(pointCount);
+        return byDistance;
+    }
 
-        // FOUND 2026-09-24 - the real root cause of the "despawns after ~90s, no death,
-        // everywhere/every-config" mystery: TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN's timer
-        // (see TempSummon::Update in TemporarySummon.cpp) only counts down while the
-        // summon is OUT of combat - it resets to full lifetime whenever IsInCombat() is
-        // true. Since this ooze is deliberately passive and never enters combat, that
-        // timer just counted down from the moment it spawned and unsummoned it ~90s
-        // later no matter where it was, what model it had, or whether it could move -
-        // explaining every single symptom chased over several failed diagnostics
-        // (terrain, grid, gravity, Swim, SmartAI react state). TEMPSUMMON_TIMED_DESPAWN
-        // counts down unconditionally regardless of combat state, and death still
-        // unsummons instantly regardless of summon type (handled earlier in
-        // TempSummon::Update, before the type-specific switch). This is the actual fix -
-        // the SetDisableGravity/IsGridLoaded workarounds above are left in as harmless
-        // extra safety nets, not because they were wrong, just not the real cause.
-        if (Creature* ooze = boss->SummonCreature(ENTRY_MOLTEN_BLOOD_OOZE, chosen->x, chosen->y, chosen->z, 0.0f, TEMPSUMMON_TIMED_DESPAWN, MOLTEN_BLOOD_DESPAWN_MS))
+    // FOUND 2026-09-24 - the real root cause of the "despawns after ~90s, no death,
+    // everywhere/every-config" mystery: TEMPSUMMON_TIMED_OR_CORPSE_DESPAWN's timer
+    // (see TempSummon::Update in TemporarySummon.cpp) only counts down while the
+    // summon is OUT of combat - it resets to full lifetime whenever IsInCombat() is
+    // true. Since this ooze is deliberately passive and never enters combat, that
+    // timer just counted down from the moment it spawned and unsummoned it ~90s
+    // later no matter where it was, what model it had, or whether it could move -
+    // explaining every single symptom chased over several failed diagnostics
+    // (terrain, grid, gravity, Swim, SmartAI react state). TEMPSUMMON_TIMED_DESPAWN
+    // counts down unconditionally regardless of combat state, and death still
+    // unsummons instantly regardless of summon type (handled earlier in
+    // TempSummon::Update, before the type-specific switch). This is the actual fix -
+    // the SetDisableGravity/IsGridLoaded workarounds above are left in as harmless
+    // extra safety nets, not because they were wrong, just not the real cause.
+    void SpawnMoltenBloodOozeAt(Creature* boss, MoltenBloodSpawnPoint const* pt)
+    {
+        if (Creature* ooze = boss->SummonCreature(ENTRY_MOLTEN_BLOOD_OOZE, pt->x, pt->y, pt->z, 0.0f, TEMPSUMMON_TIMED_DESPAWN, MOLTEN_BLOOD_DESPAWN_MS))
         {
             ooze->SetDisableGravity(true);
+        }
+    }
+
+    // Periodic spawner: one ooze, randomly at any of the 3 farthest-from-boss points.
+    void SpawnMoltenBloodAtFarthestPoints(Creature* boss, size_t pointCount)
+    {
+        auto pool = FarthestLoadedMoltenBloodPoints(boss, pointCount);
+        if (pool.empty())
+            return;
+        SpawnMoltenBloodOozeAt(boss, Acore::Containers::SelectRandomContainerElement(pool));
+    }
+
+    // Pillar-triggered blob wave: spawns `waveCount` oozes (clamped to the candidate
+    // pool, which should already equal waveCount at the caller - see PILLAR_BLOB_*
+    // comment), each at a DIFFERENT point drawn from the pool - sampling without
+    // replacement (pick a random remaining point, spawn, remove it from the pool) so a
+    // multi-ooze wave never doubles up two oozes on the same spot.
+    void SpawnMoltenBloodBlobWave(Creature* boss, size_t poolSize, int waveCount)
+    {
+        auto pool = FarthestLoadedMoltenBloodPoints(boss, poolSize);
+        size_t toSpawn = std::min<size_t>(size_t(std::max(waveCount, 0)), pool.size());
+        for (size_t i = 0; i < toSpawn; ++i)
+        {
+            size_t idx = urand(0, uint32(pool.size() - 1));
+            SpawnMoltenBloodOozeAt(boss, pool[idx]);
+            pool.erase(pool.begin() + idx);
         }
     }
 
@@ -759,6 +843,34 @@ class spell_basalthane_annihilation_strike : public SpellScript
                     state.annihilationNextCast += CRACKED_ARMOR_COOLDOWN_EXTEND_MS;
                 if (state.eruptionNextCast != 0)
                     state.eruptionNextCast += CRACKED_ARMOR_COOLDOWN_EXTEND_MS;
+
+                // Per-pillar-type bonus effect, on top of the shared package above
+                // (CONFIRMED 2026-10-02, see the PILLAR_BLOB_*/SPELL_BLISTERING_TRAUMA
+                // comments for the source).
+                switch (pillar->GetEntry())
+                {
+                    case ENTRY_PILLAR_3: // Searing
+                        caster->CastSpell(caster, SPELL_BLISTERING_TRAUMA, true);
+                        break;
+                    case ENTRY_PILLAR_2: // Crumbling
+                        state.pillarBlobsRemaining = PILLAR_BLOB_TOTAL_CRUMBLING;
+                        state.pillarBlobIntervalMs = PILLAR_BLOB_INTERVAL_CRUMBLING_MS;
+                        state.pillarBlobPoolSize = 2;
+                        state.pillarBlobWaveMin = PILLAR_BLOB_WAVE_MIN_CRUMBLING;
+                        state.pillarBlobWaveMax = PILLAR_BLOB_WAVE_MAX_CRUMBLING;
+                        state.pillarBlobNextSpawn = uint32(GameTime::GetGameTimeMS().count());
+                        break;
+                    case ENTRY_PILLAR_1: // Volatile
+                        state.pillarBlobsRemaining = PILLAR_BLOB_TOTAL_VOLATILE;
+                        state.pillarBlobIntervalMs = PILLAR_BLOB_INTERVAL_VOLATILE_MS;
+                        state.pillarBlobPoolSize = 3;
+                        state.pillarBlobWaveMin = PILLAR_BLOB_WAVE_FIXED_VOLATILE;
+                        state.pillarBlobWaveMax = PILLAR_BLOB_WAVE_FIXED_VOLATILE;
+                        state.pillarBlobNextSpawn = uint32(GameTime::GetGameTimeMS().count());
+                        break;
+                    default:
+                        break;
+                }
             }
         }
     }
@@ -1003,6 +1115,7 @@ namespace
                 player->RemoveAurasDueToSpell(SPELL_FLASH_BURN_D2);
                 player->RemoveAurasDueToSpell(SPELL_FLASH_BURN_D3);
                 player->RemoveAurasDueToSpell(SPELL_SMOLDERING_VENGEANCE);
+                player->RemoveAurasDueToSpell(SPELL_BLISTERING_TRAUMA);
             }
         }
 
@@ -1017,6 +1130,10 @@ namespace
         // Cracked Armor is self-applied to the boss, not players - strip it here too.
         boss->RemoveAurasDueToSpell(SPELL_CRACKED_ARMOR);
         state.crackedArmorUntil = 0;
+
+        // Blistering Trauma's self-only dummy marker effect (Effect 3) lands on the
+        // boss too, alongside the raid-wide healing-done debuff stripped above.
+        boss->RemoveAurasDueToSpell(SPELL_BLISTERING_TRAUMA);
 
         // Pillars only come back on wipe/evade, NOT on a kill - a dead Basalthane keeps
         // his shattered pillars shattered (confirmed 2026-09-23). Debuffs above still
@@ -1055,6 +1172,8 @@ public:
             state.eruptionNextCast = 0;
             state.annihilationNextCast = 0;
             state.moltenBloodNextSpawn = 0;
+            state.pillarBlobsRemaining = 0;
+            state.pillarBlobNextSpawn = 0;
             return;
         }
 
@@ -1067,9 +1186,26 @@ public:
                 nextMolten = uint32(GameTime::GetGameTimeMS().count()) + urand(MOLTEN_BLOOD_SPAWN_INTERVAL_MIN_MS, MOLTEN_BLOOD_SPAWN_INTERVAL_MAX_MS);
             else if (uint32(GameTime::GetGameTimeMS().count()) >= nextMolten)
             {
-                SpawnMoltenBloodAtFarthestPoint(creature);
+                SpawnMoltenBloodAtFarthestPoints(creature, 3);
                 nextMolten = uint32(GameTime::GetGameTimeMS().count()) + urand(MOLTEN_BLOOD_SPAWN_INTERVAL_MIN_MS, MOLTEN_BLOOD_SPAWN_INTERVAL_MAX_MS);
             }
+        }
+
+        // Pillar-triggered blob burst (Crumbling/Volatile shattering, see
+        // PILLAR_BLOB_* comment) - fully independent of the periodic spawner above,
+        // both can be mid-cycle at the same time. One wave of (random 1-2 for Crumbling,
+        // fixed 3 for Volatile) oozes every state.pillarBlobIntervalMs, drawn from
+        // state.pillarBlobPoolSize farthest points with no repeats within a wave, until
+        // pillarBlobsRemaining hits 0.
+        if (state.pillarBlobsRemaining > 0 && uint32(GameTime::GetGameTimeMS().count()) >= state.pillarBlobNextSpawn)
+        {
+            int waveCount = (state.pillarBlobWaveMin >= state.pillarBlobWaveMax)
+                ? state.pillarBlobWaveMin
+                : irand(state.pillarBlobWaveMin, state.pillarBlobWaveMax);
+            waveCount = std::min(waveCount, state.pillarBlobsRemaining);
+            SpawnMoltenBloodBlobWave(creature, state.pillarBlobPoolSize, waveCount);
+            state.pillarBlobsRemaining -= waveCount;
+            state.pillarBlobNextSpawn = uint32(GameTime::GetGameTimeMS().count()) + state.pillarBlobIntervalMs;
         }
 
         // Inferno Trail scheduling (see INFERNO_TRAIL_CAST_INTERVAL_MS comment) - real
