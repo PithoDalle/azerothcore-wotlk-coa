@@ -1,49 +1,53 @@
--- Basalthane flex health (Onyxia's Lair, entries 10185-10188).
+-- Basalthane flex health (Onyxia's Lair, base entry 10189 - Normal; Heroic/
+-- Mythic/Ascended are 10190-10192, reached via creature_template's own
+-- difficulty_entry_N swap, never a separate spawn).
 --
--- Follows the coa_boss_flex pattern from mod-coa-raid-difficulty
--- (modules/mod-coa-raid-difficulty/data/sql/db-world/base/04_boss_flex.sql):
--- health per player per difficulty, multiplied by the players in the
--- instance on pull (clamped 10..25).
+-- CORRECTED 2026-10-02 (external review caught a real bug in every earlier
+-- version of this file): mod-coa-raid-difficulty's FlexHealth.cpp looks a
+-- boss up by `BaseEntry(creature->GetEntry())` - and Creature::GetEntry()
+-- always stays at the SPAWN entry (10189) regardless of which difficulty is
+-- active; only CreatureTemplate()->Entry changes with difficulty. The actual
+-- difficulty is read separately, via the map's own spawn mode, as an index
+-- (0-3) into ONE row's four hp_dN columns. Earlier versions of this file (and
+-- rev_20260930_12 after it) inserted/updated FOUR separate rows, one per
+-- difficulty-entry (10189-10192, each with only its own hp_dN column set) -
+-- those rows for 10190-10192 were dead weight, never read by anything; only
+-- 10189's hp_d0 column (Normal) ever actually applied. This file now creates
+-- the single row FlexHealth.cpp actually reads, with all four final values.
 --
--- Basalthane's four difficulty entries do NOT follow the base+100000/
--- +200000/+300000 convention the classic raid bosses use, so FlexHealth's
--- `entry % 100000` base-entry lookup cannot collapse them into one row.
--- Each entry gets its own row instead, with only its own hp_dN column set
--- (the other three stay 0, meaning "no flex" for that difficulty on that
--- row -- irrelevant, since that difficulty never spawns that entry).
+-- No CREATE TABLE here - mod-coa-raid-difficulty owns `coa_boss_flex` (see
+-- modules/mod-coa-raid-difficulty/data/sql/db-world/base/04_boss_flex.sql)
+-- and is a hard dependency of this encounter either way; redefining the
+-- table here risked drifting from its canonical definition.
 --
--- Per-player values (CORRECTED 2026-09-30, real combat logs found -- see below).
---
--- The original values here (421/561/845/1232) were derived from
--- HealthModifier (5355/11228/13465/15701) used as if it were the raid's
--- actual total HP anchor -- it isn't; HealthModifier is a template scalar,
--- not a measured total. Four real Basalthane kills across Normal/Heroic/
--- Mythic gave actual per-player totals ~2800x higher than that guess:
+-- Per-player values, from four real Basalthane kills:
 --   Normal  (24.08, 19 players): 22,343,440 total -> 1,175,972 / player
 --   Heroic  (24.08, 20 players): 40,244,223 total -> 2,012,211 / player
 --   Heroic  (25.08, 13 players): 24,182,108 total -> 1,860,162 / player
 --   Mythic  (26.08, 19 players): 54,699,256 total -> 2,878,908 / player
 -- Heroic here is the mean of its two kills (1,936,186). Mythic/Heroic
 -- measures at 1.49, matching the classic-raid pattern's 1.505 almost
--- exactly -- confirms Mythic flexes per-player just like Normal/Heroic,
--- not a flat total regardless of player count. Ascended has no logged kill;
--- extrapolated the same way the classic raids' ungled difficulties are
+-- exactly - confirms Mythic flexes per-player just like Normal/Heroic, not a
+-- flat total regardless of player count. Ascended has no logged kill;
+-- extrapolated the same way the classic raids' unlogged difficulties are
 -- (Heroic x2.19, same MC pattern) -> 4,240,248 / player.
--- Player counts are "everyone who hit him", a lower bound (~7% error),
--- same caveat as the classic-raid data this pattern comes from.
+--
+-- Mythic/Ascended are additionally 25-man-locked (not dynamic flex) - see
+-- FlexHealth.cpp's negative-value convention, added specifically to support
+-- this - hence the negative hp_d2/hp_d3 here (always x25 regardless of
+-- actual headcount; Normal/Heroic stay positive, dynamic 10-25).
 
-CREATE TABLE IF NOT EXISTS `coa_boss_flex` (
-  `entry`    INT UNSIGNED NOT NULL COMMENT 'base creature entry',
-  `hp_d0`    INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'health per player, Normal; 0 no flex',
-  `hp_d1`    INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Heroic',
-  `hp_d2`    INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Mythic',
-  `hp_d3`    INT UNSIGNED NOT NULL DEFAULT 0 COMMENT 'Ascended',
-  `comment`  VARCHAR(255) NOT NULL DEFAULT '',
-  PRIMARY KEY (`entry`)
-) ENGINE=MyISAM DEFAULT CHARSET=utf8mb4;
+-- Mythic/Ascended's 25-man-lock needs negative values (see above) - widen the
+-- shared table's columns from the module's own INT UNSIGNED to signed INT.
+-- Affects every boss using this table, not just Basalthane, but is backward
+-- compatible: existing positive values behave exactly as before, only a
+-- negative value changes FlexHealth.cpp's behavior (opt-in via sign).
+ALTER TABLE `coa_boss_flex`
+    MODIFY `hp_d0` INT NOT NULL DEFAULT 0 COMMENT 'health per player, Normal; 0 no flex',
+    MODIFY `hp_d1` INT NOT NULL DEFAULT 0 COMMENT 'Heroic',
+    MODIFY `hp_d2` INT NOT NULL DEFAULT 0 COMMENT 'Mythic; negative = 25-man-locked (always x25)',
+    MODIFY `hp_d3` INT NOT NULL DEFAULT 0 COMMENT 'Ascended; negative = 25-man-locked (always x25)';
 
-DELETE FROM `coa_boss_flex` WHERE `entry` IN (10185,10186,10187,10188);
-INSERT INTO `coa_boss_flex` VALUES (10185, 1175972, 0, 0, 0, 'Basalthane Normal: measured, 24.08 kill, 19 players, 22,343,440 total');
-INSERT INTO `coa_boss_flex` VALUES (10186, 0, 1936186, 0, 0, 'Basalthane Heroic: measured, mean of 2 kills (2,012,211 and 1,860,162 per player)');
-INSERT INTO `coa_boss_flex` VALUES (10187, 0, 0, 2878908, 0, 'Basalthane Mythic: measured, 26.08 kill, 19 players, 54,699,256 total -- per-player like the others, follows MC flex pattern');
-INSERT INTO `coa_boss_flex` VALUES (10188, 0, 0, 0, 4240248, 'Basalthane Ascended: not measured, extrapolated at Heroic x2.19 (MC pattern)');
+DELETE FROM `coa_boss_flex` WHERE `entry` IN (10185, 10186, 10187, 10188, 10189, 10190, 10191, 10192);
+INSERT INTO `coa_boss_flex` (`entry`, `hp_d0`, `hp_d1`, `hp_d2`, `hp_d3`, `comment`) VALUES
+(10189, 1175972, 1936186, -2878908, -4240248, 'Basalthane: Normal/Heroic measured and dynamic-flex (10-25); Mythic/Ascended measured/extrapolated and 25-man-locked');

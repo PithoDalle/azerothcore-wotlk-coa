@@ -138,10 +138,10 @@ namespace
     constexpr uint32 SPELL_ERUPTION_EXPLOSION_D2 = 2105079;
     constexpr uint32 SPELL_ERUPTION_EXPLOSION_D3 = 2105080;
     // Heat Splash: real native School Damage (Fire), per difficulty - confirmed via a
-    // raw Spell.dbc parse (ImplicitTargetA/B = TARGET_SRC_CASTER + TARGET_UNIT_SRC_AREA_ENEMY,
-    // same "hits everyone around whoever casts it" pattern as Flash Burn), so like the
-    // Eruption explosion spells it needs a relocated WORLD_TRIGGER to land anywhere but
-    // on Basalthane himself - see CastHeatSplashAt. Part of the Eruption impact, alongside
+    // raw Spell.dbc parse (ImplicitTargetA/B = TARGET_UNIT_TARGET_ENEMY + DEST_AREA_ENEMY,
+    // corrected 2026-10-02 - see CastHeatSplashAt and AnnihilationHitSpellFor's comments
+    // for the enum mix-up this fixes), so it's just a direct cast onto whichever unit
+    // Eruption hit - no trigger relocation needed. Part of the Eruption impact, alongside
     // the explosion and Magma Pool.
     constexpr uint32 SPELL_HEAT_SPLASH_D0 = 2108251;
     constexpr uint32 SPELL_HEAT_SPLASH_D1 = 2108252;
@@ -485,10 +485,22 @@ namespace
         }
     }
 
+    // CORRECTED 2026-10-02 (external review): KillSelf() alone left two real problems -
+    // the dead pillar's corpse model stayed visible until its normal corpse-decay timer
+    // ran out, and the DB-side spawntimesecs=86400 "suppress the natural respawn" fix
+    // (rev_20260930_10) silently never applied because it targeted stale guids
+    // (9650001-3) left over from an old renumbering that was never carried through to
+    // this live DB - the pillars are still spawned at 9500001-3. Fixed both directly in
+    // C++ instead of depending on the DB column at all: force the corpse to decay
+    // immediately (no lingering model) and override the respawn timer to a week out, so
+    // the only way a shattered pillar comes back is RestorePillar()'s explicit
+    // Respawn(true) on wipe/evade - never the pillar's own timer, never on a kill.
     void ShatterPillar(Creature* boss, Creature* pillar)
     {
         StateFor(boss).hiddenPillars.insert(pillar->GetGUID());
         pillar->KillSelf();
+        pillar->SetCorpseRemoveTime(0);
+        pillar->SetRespawnTime(7 * 24 * 3600);
     }
 
     void RestorePillar(Unit* context, ObjectGuid guid)
@@ -607,26 +619,6 @@ namespace
             case ENTRY_BASALTHANE_MYTHIC:   return SPELL_ANNIHILATION_HIT_D2;
             case ENTRY_BASALTHANE_ASCENDED: return SPELL_ANNIHILATION_HIT_D3;
             default:                        return SPELL_ANNIHILATION_HIT_D0;
-        }
-    }
-
-    // The real hit (2108207-10) is TARGET_SRC_CASTER + SRC_AREA_ENEMY in the DBC -
-    // confirmed via a raw Spell.dbc parse (2026-10-02) - so casting it straight from
-    // Basalthane centers the 10yd radius on HIM, not on the tank, no matter what unit
-    // is passed as the CastSpell target (that argument is simply unused by this implicit
-    // target pair). User wants this tank-centered instead - same relocation trick as
-    // CastEruptionExplosionAt/CastHeatSplashAt: summon a short-lived invisible
-    // WORLD_TRIGGER at the tank's position and cast from there.
-    void CastAnnihilationHitAt(Unit* caster, Unit* target)
-    {
-        uint32 spellId = AnnihilationHitSpellFor(caster);
-        if (!sSpellMgr->GetSpellInfo(spellId))
-            return;
-
-        if (Creature* trigger = caster->SummonCreature(WORLD_TRIGGER, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ(), 0.0f, TEMPSUMMON_TIMED_DESPAWN, 1000))
-        {
-            trigger->SetFaction(caster->GetFaction());
-            trigger->CastSpell(trigger, spellId, true);
         }
     }
 
@@ -773,20 +765,21 @@ namespace
         }
     }
 
-    // Same relocation trick as CastEruptionExplosionAt - Heat Splash is also
-    // TARGET_SRC_CASTER + SRC_AREA_ENEMY, so it has to be cast from a trigger sitting
-    // at the impact point rather than from Basalthane himself.
-    void CastHeatSplashAt(Unit* caster, float x, float y, float z)
+    // CORRECTED 2026-10-02 (same bug as CastAnnihilationHitAt, same root cause): Heat
+    // Splash is TARGET_UNIT_TARGET_ENEMY (6) + TARGET_UNIT_DEST_AREA_ENEMY (16) in the
+    // DBC, not TARGET_SRC_CASTER + SRC_AREA_ENEMY - an earlier same-day pass misread
+    // AC's Targets enum (see AnnihilationHitSpellFor's comment for the full mix-up).
+    // Needs a real explicit enemy unit target, which the old same-faction
+    // WORLD_TRIGGER-casting-on-itself could never satisfy (SpellInfo::CheckExplicitTarget
+    // would fail) - a plain direct cast onto the same unit Eruption hit is both correct
+    // per the DBC and simpler, no trigger needed.
+    void CastHeatSplashAt(Unit* caster, Unit* target)
     {
         uint32 spellId = HeatSplashSpellFor(caster);
         if (!sSpellMgr->GetSpellInfo(spellId))
             return;
 
-        if (Creature* trigger = caster->SummonCreature(WORLD_TRIGGER, x, y, z, 0.0f, TEMPSUMMON_TIMED_DESPAWN, 1000))
-        {
-            trigger->SetFaction(caster->GetFaction());
-            trigger->CastSpell(trigger, spellId, true);
-        }
+        caster->CastSpell(target, spellId, true);
     }
 
     // Builds a real SpellNonMeleeDamage, runs it through the normal mitigation
@@ -795,8 +788,14 @@ namespace
     // debuffs to actually apply to this damage - Annihilation Strike's -25% Fire
     // resistance and Eruption's own +100% Fire damage taken stack are both real
     // auras that only affect damage that goes through this pipeline.
+    // CORRECTED 2026-10-02 (external review): CalculateSpellDamageTaken handles armor,
+    // resilience, absorbs and resistance, but a native spell effect also runs
+    // SpellDamageBonusTaken() separately before that step - without it,
+    // SPELL_AURA_MOD_DAMAGE_PERCENT_TAKEN auras (Eruption's own Fire-vulnerability
+    // stack included) never apply to this manual damage path.
     void DealMitigatedFireDamage(Unit* caster, Unit* target, uint32 dmg, SpellInfo const* spellInfo)
     {
+        dmg = target->SpellDamageBonusTaken(caster, spellInfo, dmg, SPELL_DIRECT_DAMAGE);
         SpellNonMeleeDamage damageInfo(caster, target, spellInfo, spellInfo->SchoolMask);
         caster->CalculateSpellDamageTaken(&damageInfo, int32(dmg), spellInfo);
         Unit::DealDamageMods(target, damageInfo.damage, &damageInfo.absorb);
@@ -817,9 +816,19 @@ class spell_basalthane_annihilation_strike : public SpellScript
         if (!caster || !target)
             return;
 
-        // Real native Weapon % Damage hit, per difficulty - relocated to originate from
-        // the tank (see CastAnnihilationHitAt), not from Basalthane.
-        CastAnnihilationHitAt(caster, target);
+        // CORRECTED 2026-10-02 (external review caught a real bug): the hit (2108207-10)
+        // is TARGET_UNIT_TARGET_ENEMY (6) + TARGET_UNIT_DEST_AREA_ENEMY (16) in the DBC -
+        // an earlier same-day pass misread AC's own Targets enum (6 was wrongly read as
+        // TARGET_SRC_CASTER, which is actually 22; 16 was wrongly read as SRC_AREA_ENEMY,
+        // which is actually 15) and "fixed" this into a WORLD_TRIGGER relocation that was
+        // both unnecessary and broken: TARGET_UNIT_TARGET_ENEMY requires a real explicit
+        // enemy unit target, which a same-faction trigger casting on itself fails
+        // (SpellInfo::CheckExplicitTarget), and SPELL_EFFECT_WEAPON_PERCENT_DAMAGE reads
+        // weapon damage from the caster (m_caster->CalculateDamage()), so even if
+        // targeting somehow passed, a WORLD_TRIGGER has no weapon to read from. This
+        // plain direct cast was already correct - DEST_AREA_ENEMY around the explicit
+        // target's own position is tank-centered natively, no relocation needed.
+        caster->CastSpell(target, AnnihilationHitSpellFor(caster), true);
 
         // Real native stacking debuff - the game handles the icon, stacking and duration
         caster->CastSpell(target, SPELL_ANNIHILATION_DEBUFF, true);
@@ -1016,7 +1025,7 @@ class spell_basalthane_eruption : public SpellScript
 
         // Heat Splash: a second, separate instant School Damage hit at the same impact
         // point (not part of the explosion/magma pool DBC data - a distinct spell).
-        CastHeatSplashAt(caster, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ());
+        CastHeatSplashAt(caster, target);
 
         // Magma Pool is a real native area aura - cast it at the impact point to leave the ground hazard
         CastMagmaPoolAt(caster, target->GetPositionX(), target->GetPositionY(), target->GetPositionZ());
@@ -1066,12 +1075,19 @@ class spell_basalthane_inferno_trail_hit_visual_only : public SpellScript
     }
 };
 
+// CORRECTED 2026-10-02 (external review caught a real bug): the tick timer used to live
+// in a std::unordered_map shared across EVERY player, as a member of this single
+// globally-registered PlayerScript. Map::Update calls Player::Update on map worker
+// threads, so with MapUpdate.Threads > 1, two different players' OnPlayerUpdate calls
+// could concurrently insert/rehash the SAME shared map from different threads -
+// undefined behavior, same class of bug BasalthaneState's move to CustomData already
+// fixed for the boss. Moved onto each player's own CustomData instead - no shared
+// container, so no cross-thread access to the same memory is possible at all.
 class playerscript_basalthane_annihilation_cleanup : public PlayerScript
 {
 public:
     playerscript_basalthane_annihilation_cleanup()
-        : PlayerScript("playerscript_basalthane_annihilation_cleanup",
-            { PLAYERHOOK_ON_UPDATE, PLAYERHOOK_ON_LOGOUT })
+        : PlayerScript("playerscript_basalthane_annihilation_cleanup", { PLAYERHOOK_ON_UPDATE })
     {
     }
 
@@ -1081,22 +1097,23 @@ public:
             TickSmolderingVengeance(player);
     }
 
-    void OnPlayerLogout(Player* player) override
-    {
-        smolderingVengeanceNextTick.erase(player->GetGUID());
-    }
-
 private:
-    std::unordered_map<ObjectGuid, uint32> smolderingVengeanceNextTick;
+    struct SmolderingVengeanceTimerState : DataMap::Base
+    {
+        uint32 nextTick = 0;
+    };
+
+    static constexpr char STATE_KEY[] = "custom.basalthane.smoldering_vengeance_timer";
 
     void TickSmolderingVengeance(Player* player)
     {
+        SmolderingVengeanceTimerState& state = *player->CustomData.GetDefault<SmolderingVengeanceTimerState>(STATE_KEY);
+
         uint32 now = uint32(GameTime::GetGameTimeMS().count());
-        uint32& nextTick = smolderingVengeanceNextTick[player->GetGUID()];
-        if (now < nextTick)
+        if (now < state.nextTick)
             return;
 
-        nextTick = now + SMOLDERING_VENGEANCE_TICK_MS;
+        state.nextTick = now + SMOLDERING_VENGEANCE_TICK_MS;
 
         Creature* boss = player->FindNearestCreature(ENTRY_BASALTHANE_NORMAL, 200.0f);
         uint32 tickSpell = SmolderingVengeanceTickSpellFor(boss ? GetDifficultyEntry(boss) : ENTRY_BASALTHANE_NORMAL);
@@ -1251,10 +1268,25 @@ public:
                             players.push_back(player);
                     }
 
+                    // CORRECTED 2026-10-02 (external review): the threat-list pool
+                    // already excludes dead players/GMs, but not range or line of
+                    // sight - a player who moved out of cast range or behind an
+                    // obstruction still fails the cast silently. Check the real
+                    // SpellCastResult: only burn the full cycle on an actual
+                    // successful cast; a failure (no valid target reachable right
+                    // now) retries shortly instead of being treated the same as a
+                    // genuine cast, same reasoning CastSpell's result already exists
+                    // for elsewhere in this encounter.
                     if (!players.empty())
-                        creature->CastSpell(Acore::Containers::SelectRandomContainerElement(players), SPELL_INFERNO_TRAIL, false);
-
-                    nextInferno = uint32(GameTime::GetGameTimeMS().count()) + INFERNO_TRAIL_CAST_INTERVAL_MS;
+                    {
+                        SpellCastResult result = creature->CastSpell(Acore::Containers::SelectRandomContainerElement(players), SPELL_INFERNO_TRAIL, false);
+                        nextInferno = uint32(GameTime::GetGameTimeMS().count()) +
+                            (result == SPELL_CAST_OK ? INFERNO_TRAIL_CAST_INTERVAL_MS : 1000);
+                    }
+                    else
+                    {
+                        nextInferno = uint32(GameTime::GetGameTimeMS().count()) + INFERNO_TRAIL_CAST_INTERVAL_MS;
+                    }
                 }
             }
         }
