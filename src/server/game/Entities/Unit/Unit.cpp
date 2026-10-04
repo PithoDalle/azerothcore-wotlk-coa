@@ -1236,6 +1236,9 @@ uint32 Unit::DealDamage(Unit* attacker, Unit* victim, uint32 damage, CleanDamage
         ;//victim->ToPlayer()->UpdateAchievementCriteria(ACHIEVEMENT_CRITERIA_TYPE_HIGHEST_HIT_RECEIVED, damage); // pussywizard: optimization
     else if (!victim->IsControlledByPlayer() || victim->IsVehicle())
     {
+        if (damage)
+            victim->ToCreature()->RegisterSharedQuestContributor(attacker);
+
         if (!victim->ToCreature()->hasLootRecipient())
             victim->ToCreature()->SetLootRecipient(attacker);
 
@@ -5663,15 +5666,20 @@ void Unit::RemoveOwnedAuras(std::function<bool(Aura const*)> const& check)
 
 void Unit::RemoveAppliedAuras(std::function<bool(AuraApplication const*)> const& check)
 {
-    for (AuraApplicationMap::iterator iter = m_appliedAuras.begin(); iter != m_appliedAuras.end();)
+    std::vector<std::pair<uint32, AuraApplication*>> const applications(m_appliedAuras.begin(), m_appliedAuras.end());
+    for (auto const& [spellId, aurApp] : applications)
     {
-        // RemoveAura no-ops on applications already mid-removal
-        if (!iter->second->GetRemoveMode() && check(iter->second))
+        AuraApplicationMapBoundsNonConst range = m_appliedAuras.equal_range(spellId);
+        for (AuraApplicationMap::iterator iter = range.first; iter != range.second; ++iter)
         {
-            RemoveAura(iter);
-            continue;
+            if (iter->second != aurApp)
+                continue;
+
+            if (!aurApp->GetRemoveMode() && check(aurApp))
+                RemoveAura(iter);
+
+            break;
         }
-        ++iter;
     }
 }
 
@@ -13280,6 +13288,7 @@ void Unit::SetHealth(uint32 val)
             val = maxHealth;
     }
 
+    uint32 const previousHealth = GetHealth();
     float prevHealthPct = GetHealthPct();
 
     SetUInt32Value(UNIT_FIELD_HEALTH, val);
@@ -13315,6 +13324,8 @@ void Unit::SetHealth(uint32 val)
                 }
         }
     }
+    if (previousHealth != GetHealth())
+        sScriptMgr->OnHealthChanged(this);
 }
 
 void Unit::SetMaxHealth(uint32 val)
@@ -13322,6 +13333,7 @@ void Unit::SetMaxHealth(uint32 val)
     if (!val)
         val = 1;
 
+    uint32 const previousMaxHealth = GetMaxHealth();
     uint32 health = GetHealth();
     SetUInt32Value(UNIT_FIELD_MAXHEALTH, val);
 
@@ -13353,6 +13365,8 @@ void Unit::SetMaxHealth(uint32 val)
 
     if (val < health)
         SetHealth(val);
+    else if (previousMaxHealth != val)
+        sScriptMgr->OnHealthChanged(this);
 }
 
 void Unit::SetPower(Powers power, uint32 val, bool withPowerUpdate /*= true*/, bool fromRegenerate /* = false */)
@@ -14987,6 +15001,8 @@ void Unit::Kill(Unit* killer, Unit* victim, bool durabilityLoss, WeaponAttackTyp
     if (creature && creature->IsPet() && creature->GetOwnerGUID().IsPlayer())
         isRewardAllowed = false;
 
+    uint32 const killerHonorableKills = player ? player->GetUInt32Value(PLAYER_FIELD_LIFETIME_HONORABLE_KILLS) : 0;
+
     // Reward player, his pets, and group/raid members
     // call kill spell proc event (before real die and combat stop to triggering auras removed at death/combat stop)
     if (isRewardAllowed && player && player != victim)
@@ -15036,6 +15052,7 @@ void Unit::Kill(Unit* killer, Unit* victim, bool durabilityLoss, WeaponAttackTyp
         {
             Loot* loot = &creature->loot;
             loot->clear();
+            creature->FinalizeSharedQuestParticipants();
 
             if (uint32 lootid = creature->GetCreatureTemplate()->lootid)
                 loot->FillLoot(lootid, LootTemplates_Creature, looter, false, false, creature->GetLootMode(), creature);
@@ -15056,7 +15073,11 @@ void Unit::Kill(Unit* killer, Unit* victim, bool durabilityLoss, WeaponAttackTyp
             }
         }
 
+        ObjectGuid rewardedPlayer = player->GetGUID();
+        ObjectGuid rewardedGroup = player->GetGroup() ? player->GetGroup()->GetGUID() : ObjectGuid::Empty;
         player->RewardPlayerAndGroupAtKill(victim, false);
+        if (creature)
+            creature->RewardSharedQuestParticipants(rewardedPlayer, rewardedGroup);
     }
 
     // Do KILL and KILLED procs. KILL proc is called only for the unit who landed the killing blow (and its owner - for pets and totems) regardless of who tapped the victim
@@ -15251,6 +15272,9 @@ void Unit::Kill(Unit* killer, Unit* victim, bool durabilityLoss, WeaponAttackTyp
             else
                 bg->HandleKillUnit(victim->ToCreature(), player);
         }
+
+    if (player && victim->IsPlayer() && player->GetUInt32Value(PLAYER_FIELD_LIFETIME_HONORABLE_KILLS) > killerHonorableKills)
+        sScriptMgr->OnPlayerHonorableKillingBlow(player, victim->ToPlayer());
 
     // achievement stuff
     if (killer && victim->IsPlayer())
@@ -16382,8 +16406,17 @@ void Unit::UpdateObjectVisibility(bool forced, bool /*fromUpdate*/)
     }
 }
 
+bool Unit::IsImmuneToForcedMovement() const
+{
+    Creature const* creature = ToCreature();
+    return creature && (creature->isWorldBoss() || creature->IsDungeonBoss() || creature->IsImmuneToKnockback());
+}
+
 void Unit::KnockbackFrom(float x, float y, float speedXY, float speedZ)
 {
+    if (IsImmuneToForcedMovement())
+        return;
+
     Player* player = ToPlayer();
     if (!player)
     {
@@ -17978,7 +18011,7 @@ void Unit::PatchValuesUpdate(ByteBuffer& valuesUpdateBuf, BuildValuesCachePosPoi
             if (creature->hasLootRecipient())
             {
                 dynamicFlags |= UNIT_DYNFLAG_TAPPED;
-                if (creature->isTappedBy(target))
+                if (creature->isTappedBy(target) || creature->IsSharedQuestParticipant(target))
                     dynamicFlags |= UNIT_DYNFLAG_TAPPED_BY_PLAYER;
             }
 
