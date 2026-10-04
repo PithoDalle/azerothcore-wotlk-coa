@@ -600,7 +600,8 @@ void ObserveExtensionPacket(Actor& actor, WorldPacket const& packet)
     if (packet.GetOpcode() < FirstExtensionOpcode && packet.GetOpcode() != SMSG_MOVE_SET_CAN_FLY &&
         packet.GetOpcode() != SMSG_MOVE_UNSET_CAN_FLY && packet.GetOpcode() != SMSG_CONVERT_RUNE &&
         packet.GetOpcode() != SMSG_ADD_RUNE_POWER && packet.GetOpcode() != SMSG_LEARNED_SPELL &&
-        packet.GetOpcode() != SMSG_SUPERCEDED_SPELL && packet.GetOpcode() != SMSG_REMOVED_SPELL)
+        packet.GetOpcode() != SMSG_SUPERCEDED_SPELL && packet.GetOpcode() != SMSG_REMOVED_SPELL &&
+        packet.GetOpcode() != SMSG_ITEM_QUERY_SINGLE_RESPONSE)
         return;
 
     ++actor.extensionPackets[packet.GetOpcode()];
@@ -2749,7 +2750,7 @@ private:
             metric == "pet_aura_amplitude_ms" || metric == "pet_aura_duration_ms" || metric == "pet_max_health" ||
             metric == "pet_attack_power" || metric == "pet_run_speed_rate" || metric == "pet_is_banker" ||
             metric == "pet_display" || metric == "pet_scale" || metric == "pet_knows_spell" ||
-            metric == "pet_distance")
+            metric == "pet_distance" || metric == "pet_spell_bar_count")
         {
             Creature* pet = player->GetGuardianPet();
             if (!pet)
@@ -2764,6 +2765,18 @@ private:
                 return pet ? pet->GetDisplayId() : 0;
             if (metric == "pet_scale")
                 return pet ? double(pet->GetObjectScale()) : 0.0;
+            if (metric == "pet_spell_bar_count")
+            {
+                Require(pet && pet->GetCharmInfo(), "Metric needs a controllable pet");
+                uint32 count = 0;
+                for (uint8 index = 0; index < MAX_UNIT_ACTION_BAR_INDEX; ++index)
+                {
+                    UnitActionBarEntry const* entry = pet->GetCharmInfo()->GetActionBarEntry(index);
+                    if (entry->IsActionBarForSpell() && entry->GetAction())
+                        ++count;
+                }
+                return count;
+            }
             if (metric == "pet_knows_spell")
                 return pet && pet->IsPet() && pet->ToPet()->HasSpell(spell);
             if (!pet && (metric == "pet_aura_stacks" || metric == "pet_aura_amount" ||
@@ -3523,6 +3536,27 @@ private:
             return;
         }
         Player* player = GetPlayer(id);
+        if (action == "mapless_loot_hook")
+        {
+            std::string const storeName = step.get<std::string>("store");
+            Require(storeName == "mail" || storeName == "gameobject", "Unsupported mapless loot store");
+            LootStore const& store = storeName == "mail" ? LootTemplates_Mail : LootTemplates_Gameobject;
+            class MaplessLootPlayer : public Player
+            {
+            public:
+                explicit MaplessLootPlayer(WorldSession* session) : Player(session)
+                {
+                    Object::_Create(ObjectGuid::Empty);
+                }
+            };
+            MaplessLootPlayer mapless(player->GetSession());
+            Require(!mapless.FindMap(), "The mapless loot fixture already has a map");
+            Loot loot;
+            sScriptMgr->OnAfterLootTemplateProcess(&loot, nullptr, store, &mapless, true, true, LOOT_MODE_DEFAULT);
+            Require(loot.items.empty(), "The mapless loot hook generated an item");
+            record.put("loot_items", loot.items.size());
+            return;
+        }
         if (auto const found = _actors.find(id); found != _actors.end())
             found->second.lastBuyOrdinal = found->second.packetOrdinal;
         uint32 spell = step.get<uint32>("spell", 0);
