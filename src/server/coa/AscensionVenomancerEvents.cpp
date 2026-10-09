@@ -66,7 +66,7 @@ class aura_ascension_venomancer_event : public AuraScript
         Unit* target = event.GetActionTarget();
         switch (id)
         {
-            case 92142: return damage && !periodic && Chance(player,id);
+            case 92142: return damage && !periodic && !Any(info,{504543,503925}) && Chance(player,id);
             case 503812: return damage && Any(info,{803196,803208});
             case 503851: return damage && periodic && Chance(player,id);
             case 503854: return damage && Any(info,{800880,504705});
@@ -101,7 +101,10 @@ class aura_ascension_venomancer_event : public AuraScript
             case 707233: return damage && periodic && (!info || info->Id != 707234) && Chance(player,id);
             case 707382: return damage && critical && info && info->Id == 504705;
             case 707620: return damage && critical && !periodic;
-            case 707668: return damage && critical && player->HasAura(Spider) && target->HasAura(712455,player->GetGUID());
+            case 707668:
+                return damage && critical && player->HasAura(Spider) &&
+                    target->HasAura(712455, player->GetGUID()) &&
+                    (!event.GetProcSpell() || !event.GetProcSpell()->GetScriptValue(SpiderlingVenomSource));
             case 804981: return damage && periodic && Chance(player,id);
             case 805884: return healing && periodic && critical;
             case 805933: return damage && target->GetHealthPct() < 35;

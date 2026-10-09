@@ -185,6 +185,7 @@ struct Tables
     std::unordered_map<std::uint32_t, std::unordered_set<std::uint32_t>> Mentioned;
     std::unordered_map<std::uint32_t, std::string> TagNames;
     std::unordered_map<std::uint32_t, std::vector<std::uint32_t>> RankLadders;
+    std::unordered_map<std::uint32_t, std::uint32_t> RankRoots;
 };
 
 struct PendingCard
@@ -522,6 +523,7 @@ inline Slot Decode(std::uint32_t value)
 
 Tables const& LoadedTables();
 bool IsWildcardHero(Player const* player);
+bool IsClasslessHero(Player const* player);
 bool PlaysWildcard(std::string_view realmModes);
 
 std::uint32_t ActiveSpec(Player const* player);

@@ -851,7 +851,7 @@ std::array<SpellEffectInfo::StaticData, TOTAL_SPELL_EFFECTS> SpellEffectInfo::_d
     {EFFECT_IMPLICIT_TARGET_EXPLICIT, TARGET_OBJECT_TYPE_UNIT}, // 165 SPELL_EFFECT_ASCENSION_MODIFY_COOLDOWN
     {EFFECT_IMPLICIT_TARGET_EXPLICIT, TARGET_OBJECT_TYPE_UNIT}, // 166 SPELL_EFFECT_ASCENSION_RESTORE_BASE_MANA_PCT
     {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 167 unknown Ascension effect
-    {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 168 unknown Ascension effect
+    {EFFECT_IMPLICIT_TARGET_CASTER,   TARGET_OBJECT_TYPE_UNIT}, // 168 SPELL_EFFECT_ASCENSION_PLAY_SPELL_VISUAL_KIT
     {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 169 SPELL_EFFECT_ASCENSION_SPREAD_AURA
     {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 170 SPELL_EFFECT_ASCENSION_SPREAD_AURA_2
     {EFFECT_IMPLICIT_TARGET_NONE,     TARGET_OBJECT_TYPE_NONE}, // 171 unknown Ascension effect
@@ -1501,6 +1501,10 @@ bool SpellInfo::IsAffectedBySpellMod(SpellModifier const* mod) const
         mod->spellId == 705780 && mod->op == SPELLMOD_JUMP_TARGETS && mod->type == SPELLMOD_FLAT &&
         mod->mask == flag96(128, 0, 0);
 
+    bool const windSurgeTargets = Id == 653226 && SpellFamilyName == 38 &&
+        mod->spellId == 805750 && mod->op == SPELLMOD_JUMP_TARGETS && mod->type == SPELLMOD_FLAT &&
+        mod->mask == flag96(0, 0x40000, 0);
+
     bool const bloodFueledAbsorb = Id == 560361 && mod->spellId == 705416 && mod->op == SPELLMOD_EFFECT1 &&
         mod->type == SPELLMOD_PCT;
 
@@ -1510,7 +1514,8 @@ bool SpellInfo::IsAffectedBySpellMod(SpellModifier const* mod) const
         mod->type == SPELLMOD_PCT;
 
     // xinef: dont check duration mod
-    if (mod->op != SPELLMOD_DURATION && !bandageGunTargets && !bloodFueledAbsorb && !bwonsamdisEdgeSplash)
+    if (mod->op != SPELLMOD_DURATION && !bandageGunTargets && !windSurgeTargets &&
+        !bloodFueledAbsorb && !bwonsamdisEdgeSplash)
         if (!IsAffectedBySpellMods())
             return false;
 
@@ -1521,10 +1526,6 @@ bool SpellInfo::IsAffectedBySpellMod(SpellModifier const* mod) const
 
     if (mod->targetSpellId && mod->targetSpellId != Id)
         return false;
-
-    if (mod->targetSpellRoot)
-        return affectSpell->SpellFamilyName == SpellFamilyName &&
-            mod->targetSpellRoot == sSpellMgr->GetFirstSpellInChain(Id);
 
     if (SpellFamilyName == 31 && affectSpell->SpellFamilyName == 31)
     {
@@ -1597,7 +1598,9 @@ bool SpellInfo::IsAffectedBySpellMod(SpellModifier const* mod) const
         }
     }
 
-    return IsAffected(affectSpell->SpellFamilyName, mod->mask);
+    bool affected = IsAffected(affectSpell->SpellFamilyName, mod->mask);
+    sScriptMgr->OnSpellModFamilyMask(affectSpell, this, mod, affected);
+    return affected;
 }
 
 bool SpellInfo::CanPierceImmuneAura(SpellInfo const* auraSpellInfo) const
@@ -2662,6 +2665,7 @@ void SpellInfo::_LoadImmunityInfo()
                     case 34471: // The Beast Within
                     case 19574: // Bestial Wrath
                     case 42292: // PvP trinket
+                    case 1142292: // PvP Trinket (Ascension)
                     case 46227: // Medallion of Immunity
                     case 59752: // Every Man for Himself
                     case 53490: // Bullheaded
@@ -3004,7 +3008,9 @@ uint32 SpellInfo::CalcCastTime(Unit* caster, Spell* spell) const
 
     int32 castTime = serpent ? 1000 : CastTimeEntry->CastTime;
     // Ascension channels ranged-slot spells without a base cast time, such as Tinker's Gatling Gun, at once.
-    if (HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT) && (!IsAutoRepeatRangedSpell()) && (castTime || !IsChanneled()))
+    bool const artificersWand = SpellFamilyName == 28 && (Id == 561284 || (Id >= 561354 && Id <= 561357));
+    if (HasAttribute(SPELL_ATTR0_USES_RANGED_SLOT) && !artificersWand &&
+        (!IsAutoRepeatRangedSpell()) && (castTime || !IsChanneled()))
         castTime += 500;
 
     if (caster)

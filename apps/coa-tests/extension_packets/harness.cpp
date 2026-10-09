@@ -82,15 +82,19 @@ class WorldSession
 {
 public:
     uint32 AccountId = 1;
+    bool Bot = false;
     int LocaleIndex = -1;
     Player* PlayerObject = nullptr;
     std::vector<WorldPacket> Sent;
     std::vector<std::string> Messages;
+    std::vector<std::string> ClientAddons;
 
     uint32 GetAccountId() const { return AccountId; }
+    std::vector<std::string> const& GetClientAddonNames() const { return ClientAddons; }
+    bool IsBot() const { return Bot; }
     Player* GetPlayer() const { return PlayerObject; }
     int GetSessionDbLocaleIndex() const { return LocaleIndex; }
-    void SendPacket(WorldPacket const* packet) { Sent.push_back(*packet); }
+    void SendPacket(WorldPacket const* packet);
     void HandleItemQuerySingleOpcode(WorldPacket& recvData);
     void SendItemQuerySingleResponse(uint32 item);
 };
@@ -167,6 +171,7 @@ struct Player
 
     WorldSession* GetSession() const { return Session; }
     std::string GetName() const { return "Tester"; }
+    bool IsInWorld() const { return true; }
     void SendDirectMessage(WorldPacket const* packet) { Session->SendPacket(packet); }
     void SendAllSpellChargeStates() { ++ChargeSnapshots; }
 
@@ -191,6 +196,7 @@ struct Player
     void SendInitialSpells() { }
 };
 
+// ACTUAL_RECEIVES_CLIENT_REQUESTS
 // ACTUAL_PROGRESS_EVENT
 
 struct ScriptMgr
@@ -268,6 +274,7 @@ struct ServerScript
 {
     virtual ~ServerScript() = default;
     [[nodiscard]] virtual bool CanPacketReceiveEarly(WorldSession*, WorldPacket const&) { return true; }
+    virtual bool CanPacketSend(WorldSession*, WorldPacket const&) { return true; }
 };
 
 namespace
@@ -375,12 +382,29 @@ public:
         return service;
     }
 
-    void SendPatchStream(Player*) { }
+    void SendPatchStream(Player*, bool = false) { }
 
     std::vector<uint32> ItemRequests;
 
     void SendItemRowOnDemand(Player*, uint32 entry) { ItemRequests.push_back(entry); }
 };
+
+namespace ItemScaling
+{
+std::vector<uint32> StatQueries;
+
+void HandleStatQuery(WorldSession*, WorldPacket const& packet)
+{
+    if (packet.size() == sizeof(uint64))
+        StatQueries.push_back(packet.read<uint32>(0));
+}
+}
+
+namespace AscensionFreepick
+{
+bool MysticAltars = false;
+bool RealmOffersMysticAltars() { return MysticAltars; }
+}
 
 class AscensionCollectionService
 {
@@ -416,6 +440,7 @@ public:
     // ACTUAL_HANDLE_CLIENT_PACKET
     // ACTUAL_POINT_SPEND
     // ACTUAL_DELIVER_VANITY
+    // ACTUAL_WITHHELD_VANITY
     // ACTUAL_BANK_VANITY
 
     std::shared_ptr<PlayerCollectionState> State;
@@ -426,9 +451,12 @@ public:
     std::unordered_map<uint32, uint32> _rejectedPackets;
 };
 
+bool QueueAscensionDungeonDifficulty(WorldSession*, WorldPacket const&) { return false; }
+
 struct AscensionCompatServerScript : ServerScript
 {
     // ACTUAL_CAN_PACKET_RECEIVE_EARLY
+    // ACTUAL_CAN_PACKET_SEND
 };
 
 struct AscensionCompatCommandScript
@@ -549,12 +577,18 @@ WorldPacket ExtensionInitialized()
 
 bool TrustsHelpUi(WorldPacket packet)
 {
-    if (packet.GetOpcode() != 0x094E || packet.size() != 22)
+    if (packet.GetOpcode() != 0x094E || packet.size() < sizeof(uint32))
         return false;
-
     packet.rpos(0);
-    return packet.read<uint32>() == 1 && ReadString(packet) == "Ascension_HelpUI" &&
-        packet.read<uint8>() == 1 && packet.rpos() == packet.size();
+    uint32 const count = packet.read<uint32>();
+    bool helpUiSecure = false;
+    for (uint32 i = 0; i < count; ++i)
+    {
+        std::string const name = ReadString(packet);
+        uint8 const secure = packet.read<uint8>();
+        helpUiSecure |= name == "Ascension_HelpUI" && secure == 1;
+    }
+    return helpUiSecure && packet.rpos() == packet.size();
 }
 
 void TestCharacterEnumeration()
@@ -613,6 +647,55 @@ void TestStorePackets()
     Check(!glueQueryPassedOn && !gluePurchasePassedOn && DispatchedOpcodes.empty() && glue.Sent.size() == 1 &&
             glue.Sent[0].GetOpcode() == 0x06BA,
         "before login a store query gets the empty store at once and a purchase is dropped, not queued");
+}
+
+void TestItemStatQueryQueue()
+{
+    AscensionCollectionService& service = AscensionCollectionService::Instance();
+    WorldSession session;
+    Player player;
+    player.Session = &session;
+    session.PlayerObject = &player;
+    ItemScaling::StatQueries.clear();
+    WorldPacket query(0x06FF, 8);
+    query << uint32(720) << uint32(58);
+    Check(!Receive(session, query) && ItemScaling::StatQueries.empty(),
+        "item-stat queries are consumed and queued without executing on the socket thread");
+    service.OnPlayerUpdate(&player, 1);
+    Check(ItemScaling::StatQueries == std::vector<uint32>{720},
+        "the player update forwards the item-stat query to the scaling service");
+}
+
+void TestBotAltRequests()
+{
+    AscensionCollectionService& service = AscensionCollectionService::Instance();
+    WorldSession session;
+    session.AccountId = 77;
+    Player player;
+    player.Session = &session;
+    session.PlayerObject = &player;
+    WorldSession botSession;
+    botSession.AccountId = 77;
+    botSession.Bot = true;
+    Player bot;
+    bot.Session = &botSession;
+    botSession.PlayerObject = &bot;
+    service.AppearancePackets.clear();
+
+    WorldPacket save(0x069E, 16);
+    save << std::string("Plate") << uint32(0);
+    for (WorldPacket const& packet : {ApplyAppearances(), save, ExtensionInitialized(), StoreQuery(7)})
+        Receive(session, packet);
+    DispatchedOpcodes.clear();
+    service.OnPlayerUpdate(&bot, 1);
+    Check(service.AppearancePackets.empty() && DispatchedOpcodes.empty() && !bot.ChargeSnapshots &&
+            botSession.Sent.empty(),
+        "a bot alt of the same account leaves the player's requests queued");
+    service.OnPlayerUpdate(&player, 1);
+    Check(service.AppearancePackets == std::vector<uint16>{0x0697, 0x069E} && player.ChargeSnapshots == 1 &&
+            DispatchedOpcodes == std::vector<uint16>{0x06B9} && session.Sent.size() == 2 &&
+            TrustsHelpUi(session.Sent[0]) && session.Sent[1].GetOpcode() == 0x06BA,
+        "the player's next update then handles every request of the account in order");
 }
 
 void TestWorldEntryResend()
@@ -750,6 +833,7 @@ void TestItemQueries()
     Player player;
     player.Session = &session;
 
+    session.PlayerObject = &player;
     auto& itemPatches = AscensionDisplayPatchService::Instance().ItemRequests;
     itemPatches.clear();
     std::vector<std::vector<uint8>> const replies = BulkReplies(session, player, BulkQuery({35, 999999, 135522}));
@@ -757,8 +841,8 @@ void TestItemQueries()
     Check(replies.size() == 3 && replies[0] == SingleQueryReply(35, -1) && replies[1] == unknown &&
         replies[2] == SingleQueryReply(135522, -1),
         "a bulk item query answers each entry in order with the stock single-item response");
-    Check(itemPatches == std::vector<uint32>{35, 999999, 135522},
-        "bulk query entries reach the demand-patch service in their original order");
+    Check(itemPatches == std::vector<uint32>{35, 999999 | 0x80000000u, 135522},
+        "bulk responses reach the demand-patch hook in order, including the native unknown-item marker");
 
     WorldPacket first(SMSG_ITEM_QUERY_SINGLE_RESPONSE, 0);
     if (!replies.empty())
@@ -885,12 +969,14 @@ struct VanitySetup
     bool UnlockAll = true;
     bool LearnedSpellDelivery = true;
     bool BagsFull = false;
+    bool MysticAltars = false;
 };
 
 Delivery Deliver(VanitySetup const& setup, std::vector<WorldPacket> const& requests, uint32 directItem = 0)
 {
     ascensionCompatConfig.UnlockAllVanity = setup.UnlockAll;
     ascensionCompatConfig.LearnedSpellDelivery = setup.LearnedSpellDelivery;
+    AscensionFreepick::MysticAltars = setup.MysticAltars;
     AscensionCollectionService& service = AscensionCollectionService::Instance();
     scriptMgr.Progress.clear();
     service.State = std::make_shared<PlayerCollectionState>();
@@ -953,6 +1039,17 @@ void TestVanityDelivery()
         spell.Reported == std::vector<uint32>{1003},
         "each delivered vanity item or spell is reported once as progress");
 
+    constexpr uint32 altar = 2903513;
+    objectMgr.Items[altar].ItemId = altar;
+    service._vanityItems[altar] = {};
+    Delivery const withheld = Deliver({}, {DonationPointsRequest(altar)});
+    Check(withheld.Stored.empty() && withheld.Learned.empty() && withheld.Reported.empty() &&
+        withheld.Messages == std::vector<std::string>{"Mystic Enchanting altars are not available on this realm."},
+        "Mystic altars are withheld when the realm does not offer them");
+    Delivery const allowed = Deliver({true, true, false, true}, {DonationPointsRequest(altar)});
+    Check(allowed.Stored == std::vector<uint32>{altar} && allowed.Reported == std::vector<uint32>{altar},
+        "Mystic altars are delivered when the realm offers them");
+
     VanitySetup const locked{false, true, false};
     Delivery const refused = Deliver(locked, {DonationPointsRequest(1002), DonationPointsRequest(56925),
         DonationPointsRequest(110000), DonationPointsRequest(424242), DonationPointsRequest(1004)});
@@ -970,6 +1067,13 @@ void TestVanityDelivery()
     Check(ignored == Delivery{},
         "Seasonal Points, Bazaar Tokens, unknown currencies and malformed requests deliver nothing");
 }
+}
+
+void WorldSession::SendPacket(WorldPacket const* packet)
+{
+    AscensionCompatServerScript script;
+    if (script.CanPacketSend(this, *packet))
+        Sent.push_back(*packet);
 }
 
 struct ClientClock
@@ -1126,6 +1230,8 @@ int main()
     TestCharacterEnumeration();
     TestWorldEntryResend();
     TestStorePackets();
+    TestItemStatQueryQueue();
+    TestBotAltRequests();
     TestTalentRequests();
     TestCoreHandledRequests();
     TestItemQueries();

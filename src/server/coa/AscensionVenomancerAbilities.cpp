@@ -290,22 +290,23 @@ class spell_ascension_venomancer_ability : public SpellScript
             ApplyVenoms(player,target);
         if (id == 803196)
         {
-            if (Aura* stinger = target->GetAura(803206,player->GetGUID()))
+            Aura* stinger = target->GetAura(803206,player->GetGUID());
+            bool ripped = stinger != nullptr;
+            if (ripped)
             {
                 Cast(player,target,803208);
                 stinger->Remove();
                 target->RemoveAurasDueToSpell(680854,player->GetGUID());
             }
-            else
+            Cast(player,target,803206);
+            if (Aura* added = target->GetAura(803206,player->GetGUID()))
             {
-                Cast(player,target,803206);
-                if (Aura* added = target->GetAura(803206,player->GetGUID()))
-                {
-                    int32 duration = added->GetMaxDuration() + int32(GetSpell()->GetScriptValue(Exposed+1));
-                    added->SetMaxDuration(duration);
-                    added->SetDuration(duration);
-                }
+                int32 duration = added->GetMaxDuration() + int32(GetSpell()->GetScriptValue(Exposed+1));
+                added->SetMaxDuration(duration);
+                added->SetDuration(duration);
             }
+            if (!ripped)
+                Cast(player,target,803220);
         }
         if (id == 805102)
             Expose(player,15,true);
@@ -347,7 +348,7 @@ class spell_ascension_venomancer_ability : public SpellScript
         if (id == 681056)
         {
             for (uint32 n = 0; n < 12; ++n)
-                Mushroom(player,player->GetNearPosition(Radius(681056),n * .52359878f));
+                Mushroom(player,player->GetRandomPoint(*player,Radius(680764)));
             player->CastSpell(player->GetPositionX(),player->GetPositionY(),player->GetPositionZ(),681291,true);
         }
         if (id == 806217 && GetExplTargetDest())

@@ -697,7 +697,7 @@ void ObjectMgr::LoadCreatureTemplate(Field* fields, bool triggerHook)
     creatureTemplate.unit_flags       = fields[28].Get<uint32>();
     creatureTemplate.unit_flags2      = fields[29].Get<uint32>();
     creatureTemplate.dynamicflags     = fields[30].Get<uint32>();
-    creatureTemplate.family           = uint32(fields[31].Get<uint8>());
+    creatureTemplate.family           = uint32(fields[31].Get<uint16>());
     creatureTemplate.type             = uint32(fields[32].Get<uint8>());
     creatureTemplate.type_flags       = fields[33].Get<uint32>();
     creatureTemplate.lootid           = fields[34].Get<uint32>();
@@ -6458,6 +6458,18 @@ void ObjectMgr::LoadSpellScriptNames()
             _spellScriptsStore.insert(SpellScriptsContainer::value_type(spellInfo->Id, GetScriptId(scriptName)));
         ++count;
     } while (result->NextRow());
+
+    for (auto const& [source, twin] : sSpellMgr->GetSpellTwins())
+    {
+        if (_spellScriptsStore.contains(twin))
+            continue;
+        std::vector<uint32> scriptIds;
+        auto const [begin, end] = _spellScriptsStore.equal_range(source);
+        for (auto itr = begin; itr != end; ++itr)
+            scriptIds.push_back(itr->second);
+        for (uint32 scriptId : scriptIds)
+            _spellScriptsStore.emplace(twin, scriptId);
+    }
 
     LOG_INFO("server.loading", ">> Loaded {} spell script names in {} ms", count, GetMSTimeDiffToNow(oldMSTime));
     LOG_INFO("server.loading", " ");

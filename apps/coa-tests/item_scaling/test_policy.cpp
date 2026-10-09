@@ -18,12 +18,21 @@ int main()
     assert(!EligibleItem(0, ItemClassWeapon, 13, 0, 0, 0));
     assert(!EligibleItem(2, ItemClassArmor, 5, 12, 1, 0) && !EligibleItem(2, ItemClassArmor, 5, 12, 0, 176));
 
+    assert(IsWorldforgedDescription("@Worldforged@"));
+    assert(IsWorldforgedDescription("@Worldforged@Salvaged from Theramore."));
+    assert(!IsWorldforgedDescription("") && !IsWorldforgedDescription("@Worldforged"));
+    assert(!IsWorldforgedDescription("Mad Love."));
+    assert(!IsWorldforgedDescription("A @Worldforged@ item") && !IsWorldforgedDescription("@Refined@"));
+
     assert(QuestLift(11, 30) == 19 && QuestLift(11, 11) == 0 && QuestLift(40, 30) == 0);
     assert(QuestLift(0, 30) == 0 && QuestLift(-1, 30) == 0);
     assert(LootLift(10, 27) == 17 && LootLift(10, 0) == 0 && LootLift(30, 27) == 0);
 
     assert(ContentLift(12, 30, 3) == 15 && ContentLift(27, 30, 3) == 0 && ContentLift(40, 30, 3) == 0);
     assert(ContentLift(1, 3, 3) == 0 && ContentLift(1, 2, 3) == 0);
+
+    assert(SteppedLift(0) == 0 && SteppedLift(4) == 0 && SteppedLift(5) == 5);
+    assert(SteppedLift(17) == 15 && SteppedLift(19) == 15 && SteppedLift(22) == 20 && SteppedLift(79) == 75);
 
     assert(LiftedRequiredLevel(5, 10, 17, 80) == 22 && LiftedRequiredLevel(0, 4, 23, 80) == 22);
     assert(LiftedRequiredLevel(0, 4, 0, 80) == 0 && LiftedRequiredLevel(0, 1, 4, 80) == 0);

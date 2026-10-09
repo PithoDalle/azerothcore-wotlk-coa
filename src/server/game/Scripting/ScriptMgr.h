@@ -364,6 +364,9 @@ public: /* PlayerScript */
     bool OnPlayerCreateInitialItems(Player* player, bool& handled);
     void OnPlayerSave(Player* player);
     void OnPlayerNormalizeActionButtonSpell(Player* player, uint32& action, bool loading);
+    void OnPlayerTemporarySpellReplacementNotice(Player* player, uint32 previous, uint32 replacement, bool sent);
+    void OnPlayerTemporarySpellLearnNotice(Player* player, uint32 spellId, bool sent);
+    void OnPlayerTemporarySpellRemoveNotice(Player* player, uint32 spellId, bool sent);
     void OnPlayerSpellChargeConsumed(Player* player, SpellInfo const* spellInfo, Spell* spell, uint32 recoveryMs, uint64 nowEpochMs);
     void OnPlayerSpellCooldownCalculated(Player* player, SpellInfo const* spellInfo, Spell* spell, uint32 recoveryMs);
     void OnPlayerDelete(ObjectGuid guid, uint32 accountId);
@@ -585,6 +588,8 @@ public: /* GlobalScript */
     void OnAfterUpdateEncounterState(Map* map, EncounterCreditType type, uint32 creditEntry, Unit* source, Difficulty difficulty_fixed, DungeonEncounterList const* encounters, uint32 dungeonCompleted, bool updated);
     void OnBeforeWorldObjectSetPhaseMask(WorldObject const* worldObject, uint32& oldPhaseMask, uint32& newPhaseMask, bool& useCombinedPhases, bool& update);
     bool OnIsAffectedBySpellModCheck(SpellInfo const* affectSpell, SpellInfo const* checkSpell, SpellModifier const* mod);
+    void OnSpellModFamilyMask(SpellInfo const* affectSpell, SpellInfo const* checkSpell,
+        SpellModifier const* mod, bool& affected);
     bool OnSpellHealingBonusTakenNegativeModifiers(Unit const* target, Unit const* caster, SpellInfo const* spellInfo, float& val);
     void OnLoadSpellCustomAttr(SpellInfo* spell);
     bool OnAllowedForPlayerLootCheck(Player const* player, ObjectGuid source);

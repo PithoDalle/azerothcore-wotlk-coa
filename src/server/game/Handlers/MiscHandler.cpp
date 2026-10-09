@@ -34,6 +34,7 @@
 #include "InstanceSaveMgr.h"
 #include "InstanceScript.h"
 #include "Language.h"
+#include "LocalLevelScaling.h"
 #include "Log.h"
 #include "LootMgr.h"
 #include "MapMgr.h"
@@ -1120,6 +1121,8 @@ void WorldSession::HandleInspectOpcode(WorldPacket& recv_data)
 
     player->BuildEnchantmentsInfoData(&data);
     SendPacket(&data);
+
+    LocalLevelScaling::NotifyInspected(_player, player);
 }
 
 void WorldSession::HandleInspectHonorStatsOpcode(WorldPacket& recv_data)
@@ -1403,6 +1406,15 @@ void WorldSession::HandleQueryInstanceBindsOpcode(WorldPacket& /*recvData*/)
     for (InstanceSave const* save : saves)
         data << uint32(save->GetInstanceId()) << uint32(save->GetMapId()) << uint32(save->GetDifficulty());
     SendPacket(&data);
+
+    // The instance welcome of the last instance entered (HandleMoveWorldportAck), once; the client asks twice.
+    if (Map* map = _player->FindMap(); _player->CustomData.Erase("InstanceWelcomePending") && map && map->IsDungeon())
+    {
+        Difficulty diff = _player->GetDifficulty(map->IsRaid());
+        if (InstanceSaveMgr::GetResetDelayFor(map->GetId(), diff))
+            if (time_t timeReset = sInstanceSaveMgr->GetResetTimeFor(map->GetId(), diff))
+                _player->SendInstanceResetWarning(map->GetId(), diff, uint32(timeReset - GameTime::GetGameTime().count()), true);
+    }
 }
 
 // A Reset Instances list entry calls C_LootLockout.ResetInstanceDifficulty(map, difficulty), which sends this
@@ -1488,6 +1500,7 @@ void WorldSession::HandleSetDungeonDifficultyOpcode(WorldPackets::Instance::SetD
         }
         Player::ResetInstances(_player->GetGUID(), INSTANCE_RESET_CHANGE_DIFFICULTY, false);
         _player->SetDungeonDifficulty(Difficulty(packet.Mode));
+        _player->SendDungeonDifficulty(false);
     }
 }
 
@@ -1656,8 +1669,10 @@ void WorldSession::HandleCancelMountAuraOpcode(WorldPacket& /*recv_data*/)
     if (!_player->IsMounted())
         return;
 
-    // The client sends this with every cast while mounted; the Mechsuit is left through its own aura.
-    if (_player->IsInTinkerMechsuit())
+    // The client sends this with every cast while mounted; these combat mounts are left through their auras.
+    if (_player->IsInTinkerMechsuit() ||
+        (_player->getClass() == CLASS_STARCALLER && !_player->IsInFlight() &&
+            _player->GetMountID() == 9991 && _player->HasAura(704772, _player->GetGUID())))
         return;
 
     if (_player->IsInFlight())                               // not blizz like; no any messages on blizz

@@ -19,6 +19,7 @@ struct CoATalentEntry
     std::array<std::uint32_t, 3> SpellIds;
     bool Talent = false;
     bool FreeUnlearn = false;
+    std::array<std::uint32_t, 3> RequiredEntryIds{};
 };
 
 struct CoASelectableFreeEntry
@@ -39,6 +40,7 @@ struct CoASpecialization
     std::uint8_t ClassId;
     std::uint32_t IdentityEntryId;
     std::uint32_t SignatureEntryId;
+    std::array<std::uint8_t, 3> PrimaryStats{};
 };
 
 struct CoATalentBudget

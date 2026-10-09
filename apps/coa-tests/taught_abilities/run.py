@@ -29,6 +29,7 @@ catalog_text = runpy.run_path(str(HERE.parent / "coa_talent_catalog.py"))["catal
 NEW_GRANTS = {804729: 804834, 561069: 801662, 92097: 804019, 92114: 800157,
               92119: 806291, 92131: 520326, 680750: 567524}
 REPLACEMENT_ROOTS = {
+    (14, 9, 520853, 500028): 500610,
     (17, 18, 570727, 801059): 802581,
     (17, 17, 301302, 801016): 804353,
     (17, 17, 706755, 804883): 707666,
@@ -170,6 +171,8 @@ def main():
         ("HOOKS", "\n".join(method(service, signature).replace(" override", "") for signature in (
             "void OnPlayerLearnSpell(", "void OnPlayerForgotSpell(", "void OnPlayerAfterSpecSlotChanged("))),
         ("PLAYER", "\n".join((add, remove, method(player, "void Player::learnSpell("),
+            method(player, "void Player::learnSpellWithoutAnnouncement("),
+            method(player, "void Player::_learnSpell("),
             method(player, "bool Player::HasSpell("), method(player, "bool Player::HasActiveSpell("),
             method(storage, "void Player::_SaveSpells("), method(player, "void Player::SetTemporarySpellReplacement("),
             method(player, "uint32 Player::GetTemporarySpellReplacement(")))),

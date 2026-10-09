@@ -498,7 +498,15 @@ def configure_arguments(context):
         generator = []
     prefix = (context.root / 'env/dist').as_posix()
     return [*generator, '-DCMAKE_BUILD_TYPE=RelWithDebInfo', '-DAPPS_BUILD=world-only', '-DSCRIPTS=static',
-            '-DMODULES=static', '-DBUILD_TESTING=ON', f'-DCMAKE_INSTALL_PREFIX={prefix}', *readline_arguments()]
+            '-DMODULES=static', '-DBUILD_TESTING=ON', f'-DCMAKE_INSTALL_PREFIX={prefix}', *readline_arguments(),
+            *line_table_debug_arguments()]
+
+
+def line_table_debug_arguments(platform=sys.platform):
+    if platform != 'darwin':
+        return []
+    flags = '-O2 -g1 -DNDEBUG'
+    return [f'-DCMAKE_C_FLAGS_RELWITHDEBINFO={flags}', f'-DCMAKE_CXX_FLAGS_RELWITHDEBINFO={flags}']
 
 
 def readline_arguments(platform=sys.platform, candidates=HOMEBREW_READLINE_DIRECTORIES):
@@ -864,10 +872,40 @@ def scenario_file(value, rows):
     return str(resolved)
 
 
+def inactive_module_scenarios(context, rows=None):
+    rows = load_catalog().catalog() if rows is None else rows
+    modules = [row for row in rows if row.get('module')]
+    if not modules or context.scenarios:
+        return []
+    runner = gameplay_module('run')
+    cache = cmake_cache(context.settings['build_directory'])
+    config_path = context.settings.get('worldserver_config')
+    config = runner.read_config(config_path) if config_path and config_path.is_file() else {}
+    config_directory = context.settings.get('modules_config_dir')
+    if config_directory is None and config_path:
+        config_directory = config_path.parent / 'modules'
+    if config_directory:
+        for path in sorted(config_directory.glob('*.conf')):
+            config.update(runner.read_config(path))
+    skipped = []
+    for row in modules:
+        mode = cache.get('MODULE_' + row['module'].upper(), 'default')
+        built = mode != 'disabled' and (mode != 'default' or cache.get('MODULES', 'static') != 'disabled')
+        enabled = all(str(runner.source_setting(config, key, default, context.environment)).upper() in CMAKE_TRUE
+                      for key, default in row.get('configuration', {}).items())
+        if (built and enabled) != row.get('module_active', True):
+            skipped.append(row['id'])
+    return skipped
+
+
 def scenario_plan(context):
     catalog = load_catalog()
     rows = catalog.catalog()
     if not context.scenarios:
+        skipped = inactive_module_scenarios(context, rows)
+        if skipped:
+            return {'selection': 'all enabled catalog scenarios', 'count': len(rows) - len(skipped),
+                    'skipped_optional': skipped}
         return {'selection': 'all catalog scenarios', 'count': len(rows)}
     known = {row['id'] for row in rows}
     cases = [value for value in context.scenarios if value in known]
@@ -943,6 +981,10 @@ def gameplay_command(context):
         command.append(WORLD_DATABASE_FLAGS[context.world_databases])
     if context.scenarios:
         command += ['--scenario', *context.scenarios]
+    else:
+        skipped = inactive_module_scenarios(context)
+        if skipped:
+            command += ['--skip-scenario', *skipped]
     return [str(part) for part in command]
 
 

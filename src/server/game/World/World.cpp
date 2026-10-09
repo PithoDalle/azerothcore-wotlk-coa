@@ -410,11 +410,15 @@ void World::SetInitialWorldSettings()
     LOG_INFO("server.loading", "Loading Spell Cooldown Overrides...");
     sSpellMgr->LoadSpellCooldownOverrides();
 
+    sSpellMgr->LoadSpellTwins(false);
+
     LOG_INFO("server.loading", "Loading SpellInfo Data Corrections...");
     sSpellMgr->LoadSpellInfoCorrections();
 
     LOG_INFO("server.loading", "Loading Spell Rank Data...");
     sSpellMgr->LoadSpellRanks();
+    sSpellMgr->LoadAddedSpellRanks();
+    sSpellMgr->LoadSpellTwins(true);
 
     LOG_INFO("server.loading", "Loading Spell Specific And Aura State...");
     sSpellMgr->LoadSpellSpecificAndAuraState();
@@ -562,6 +566,7 @@ void World::SetInitialWorldSettings()
 
     LOG_INFO("server.loading", "Loading Creature Base Stats...");
     sObjectMgr->LoadCreatureClassLevelStats();
+    Creature::LoadDungeonHealthOverrides();
 
     LOG_INFO("server.loading", "Loading Spawn Group Templates...");
     sObjectMgr->LoadSpawnGroupTemplates();

@@ -249,6 +249,15 @@ class BuildTests(WorkspaceTest):
         self.assertEqual(verify_all.readline_arguments('linux', (prefix,)), [])
         self.assertEqual(verify_all.readline_arguments('darwin', (workspace.base / 'absent',)), [])
 
+    def test_macos_configure_keeps_line_tables_with_a_level_every_compiler_accepts(self):
+        flags = '-O2 -g1 -DNDEBUG'
+        arguments = verify_all.line_table_debug_arguments('darwin')
+        self.assertEqual(arguments, [f'-DCMAKE_C_FLAGS_RELWITHDEBINFO={flags}',
+                                     f'-DCMAKE_CXX_FLAGS_RELWITHDEBINFO={flags}'])
+        self.assertFalse(any('-gline-tables-only' in argument for argument in arguments))
+        self.assertEqual(verify_all.line_table_debug_arguments('linux'), [])
+        self.assertEqual(verify_all.line_table_debug_arguments('win32'), [])
+
     def test_custom_cmake_arguments_replace_the_defaults(self):
         workspace = self.workspace(configured=False)
         calls, runner = self.record_commands(workspace)
@@ -626,6 +635,27 @@ class ProcessControlTests(unittest.TestCase):
 
 
 class GameplayTests(WorkspaceTest):
+    def test_default_gameplay_omits_disabled_modules_and_accepts_explicit_opt_in(self):
+        workspace = self.workspace()
+        row = {'id': 'optional-case', 'module': 'mod-optional', 'configuration': {'Optional.Enable': False}}
+        inactive = dict(row, id='inactive-case', module_active=False)
+        context = workspace.context()
+        self.assertEqual(verify_all.inactive_module_scenarios(context, [row, inactive]), ['optional-case'])
+        modules = workspace.base / 'module-configs'
+        write(modules / 'optional.conf', 'Optional.Enable = 1\n')
+        context.settings['modules_config_dir'] = modules
+        self.assertEqual(verify_all.inactive_module_scenarios(context, [row, inactive]), ['inactive-case'])
+        with (workspace.build / 'CMakeCache.txt').open('a') as cache:
+            cache.write('MODULE_MOD-OPTIONAL:STRING=disabled\n')
+        self.assertEqual(verify_all.inactive_module_scenarios(context, [row, inactive]), ['optional-case'])
+
+    def test_default_gameplay_observes_environment_configuration_overrides(self):
+        workspace = self.workspace()
+        context = workspace.context()
+        row = {'id': 'optional-case', 'module': 'mod-optional', 'configuration': {'Optional.Enable': False}}
+        context.environment['AC_OPTIONAL_ENABLE'] = 'true'
+        self.assertEqual(verify_all.inactive_module_scenarios(context, [row]), [])
+
     def test_missing_prerequisites_make_gameplay_unavailable_with_their_names(self):
         workspace = self.workspace()
         (workspace.conf / 'worldserver.conf').unlink()

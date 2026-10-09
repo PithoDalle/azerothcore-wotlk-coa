@@ -24,6 +24,7 @@
 #include "Common.h"
 #include "GameTime.h"
 #include "GridNotifiers.h"
+#include "LocalLevelScaling.h"
 #include "Log.h"
 #include "ObjectAccessor.h"
 #include "ObjectMgr.h"
@@ -1599,7 +1600,9 @@ void AuraEffect::HandleShapeshiftBoosts(Unit* target, bool apply) const
             }
 
             // Leader of the Pack
-            if (player->HasTalent(17007, player->GetActiveSpec()))
+            std::vector<uint32> const leaderOfThePack = sSpellMgr->GetSpellAndRelatives(17007);
+            if (std::any_of(leaderOfThePack.begin(), leaderOfThePack.end(),
+                [player](uint32 spellId) { return player->HasTalent(spellId, player->GetActiveSpec()); }))
             {
                 SpellInfo const* spellInfo = sSpellMgr->GetSpellInfo(24932);
                 if (spellInfo && spellInfo->Stances & (1 << (GetMiscValue() - 1)))
@@ -2199,7 +2202,13 @@ void AuraEffect::HandleAuraModShapeshift(AuraApplication const* aurApp, uint8 mo
             uint32 oldPower = target->GetPower(PowerType);
             // reset power to default values only at power change
             if (target->getPowerType() != PowerType)
+            {
+                bool const powerAlreadyActive = target->IsPlayer() &&
+                    target->ToPlayer()->HasActivePowerType(PowerType);
                 target->setPowerType(PowerType);
+                if (powerAlreadyActive)
+                    target->SetPower(PowerType, oldPower);
+            }
 
             switch (form)
             {
@@ -3235,7 +3244,8 @@ void AuraEffect::HandleAuraModDisarm(AuraApplication const* aurApp, uint8 mode, 
             player->ApplyItemDependentAuras(pItem, !apply);
             if (attackType < MAX_ATTACK)
             {
-                player->_ApplyWeaponDamage(slot, pItem->GetTemplate(), nullptr, !apply);
+                ItemTemplate const* proto = LocalLevelScaling::InstanceTemplateFor(pItem, pItem->GetTemplate());
+                player->_ApplyWeaponDamage(slot, proto, nullptr, !apply);
                 if (!apply) // apply case already handled on item dependent aura removal (if any)
                     player->UpdateWeaponDependentAuras(attackType);
             }
@@ -5356,6 +5366,9 @@ void AuraEffect::HandleAuraDummy(AuraApplication const* aurApp, uint8 mode, bool
     if (target->IsPlayer() && GetSpellInfo()->Effects[GetEffIndex()].GetItemArmorSubclassMask())
         target->UpdateArmor();
 
+    if (GetId() == 84866 && target->IsPlayer() && (mode & AURA_EFFECT_HANDLE_REAL))
+        target->ToPlayer()->UpdateSpellDamageAndHealingBonus();
+
     Unit* caster = GetCaster();
 
     if (mode & AURA_EFFECT_HANDLE_REAL)
@@ -5913,8 +5926,8 @@ void AuraEffect::HandleAuraEmpathy(AuraApplication const* aurApp, uint8 mode, bo
             return;
     }
 
-    if (target->GetCreatureType() == CREATURE_TYPE_BEAST)
-        target->ApplyModUInt32Value(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_SPECIALINFO, apply);
+    // Ascension's Undead, Demon, Dragonkin and Elemental Lore name their creature type in TargetCreatureType.
+    target->ApplyModUInt32Value(UNIT_DYNAMIC_FLAGS, UNIT_DYNFLAG_SPECIALINFO, apply);
 }
 
 void AuraEffect::HandleAuraModFaction(AuraApplication const* aurApp, uint8 mode, bool apply) const
@@ -6614,7 +6627,7 @@ void AuraEffect::HandlePeriodicDamageAurasTick(Unit* target, Unit* caster) const
     if (damage)
         procVictim |= PROC_FLAG_TAKEN_DAMAGE;
 
-    int32 overkill = damage - target->GetHealth();
+    int32 overkill = damage - LocalLevelScaling::ShownHealthFor(caster, target);
     if (overkill < 0)
         overkill = 0;
 
@@ -6962,7 +6975,8 @@ void AuraEffect::HandlePeriodicManaLeechAuraTick(Unit* target, Unit* caster) con
     if (gainAmount)
     {
         gainedAmount = caster->ModifyPower(PowerType, gainAmount);
-        target->AddThreat(caster, float(gainedAmount) * 0.5f, GetSpellInfo()->GetSchoolMask(), GetSpellInfo());
+        float const threat = LocalLevelScaling::PoolThreatFor(caster, target, float(gainedAmount) * 0.5f);
+        target->AddThreat(caster, threat, GetSpellInfo()->GetSchoolMask(), GetSpellInfo());
     }
 
     // remove CC auras
