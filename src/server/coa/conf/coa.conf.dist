@@ -7,6 +7,12 @@
 # Enable the compatibility packet filter.
 CoA.Enable = 1
 
+# Maximum crafted-item upgrade steps: 0 disables upgrade kits, 1 allows Refined,
+# 2 allows Superior, and 3 allows Masterwork. Default: 2. Values are clamped to 0-3.
+# Applies on startup and config reload; existing upgraded items remain unchanged.
+# Shirts, bags/quivers, Arclight Spanner and excluded ambiguous families cannot be upgraded.
+CoA.Crafting.MaxUpgradeSteps = 2
+
 # Apply the Ascension protocol settings to remote connections as well as loopback
 # (extension opcodes, ping interval, spell-modifier layout, class-10 mapping).
 # Enable only on realms dedicated to the matching Ascension client build.
@@ -399,6 +405,15 @@ Ascension.CallboardCache.GoldMax = 15
 #        Default:     1
 
 CoA.DungeonTuning.Enable = 1
+
+#
+#    CoA.TestZoneBonus.AnnounceIntervalMinutes
+#        Description: How often every player is told which test zones are active and what they earn
+#                     there. The zones themselves live in coa_test_zone_bonus and are managed with
+#                     .testzone; making a zone a test zone is always announced. 0 turns the reminder off.
+#        Default:     15
+
+CoA.TestZoneBonus.AnnounceIntervalMinutes = 15
 
 CrowsCache.Enable = 0
 CrowsCache.IntervalSeconds = 10800
