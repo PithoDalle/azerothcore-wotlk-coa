@@ -135,6 +135,8 @@ DELETE FROM `coa_client_vanity_collection` WHERE `ItemID` IN (
   818059,  -- Aura of Experience
   3001005,  -- Riding Tome: Journeyman Riding
   3001006,  -- Riding Tome: Apprentice Riding
+  3001007,  -- Felforged Tome: Journeyman Riding
+  3001008,  -- Felforged Tome: Apprentice Riding
   2200033,  -- Soulbound Riding Tome: Journeyman Riding
   2200034,  -- Soulbound Riding Tome: Apprentice Riding
   106955,  -- Tome of Specialization II
