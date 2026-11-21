@@ -1,9 +1,9 @@
 UPDATE `worldforged_upgrade` `w`
 JOIN `item_template` `t` ON `t`.`entry` = `w`.`target_item`
 JOIN (VALUES
-ROW('1H', 60, 20000), ROW('1H', 64, 29600), ROW('1H', 67, 29600), ROW('1H', 70, 43800), ROW('1H', 73, 64850), ROW('1H', 77, 95950), ROW('1H', 81, 142000), ROW('1H', 88, 210200),
+ROW('1H', 60, 14650), ROW('1H', 64, 21700), ROW('1H', 67, 21700), ROW('1H', 70, 32100), ROW('1H', 73, 47500), ROW('1H', 77, 70300), ROW('1H', 81, 104050), ROW('1H', 88, 153950),
 ROW('Ranged', 60, 20000), ROW('Ranged', 64, 29600), ROW('Ranged', 67, 29600), ROW('Ranged', 70, 43800), ROW('Ranged', 73, 64850), ROW('Ranged', 77, 95950), ROW('Ranged', 81, 142000), ROW('Ranged', 88, 210200),
-ROW('2H', 60, 26650), ROW('2H', 64, 39450), ROW('2H', 67, 39450), ROW('2H', 70, 58350), ROW('2H', 73, 86400), ROW('2H', 77, 127850), ROW('2H', 81, 189250), ROW('2H', 88, 280050),
+ROW('2H', 60, 29300), ROW('2H', 64, 43400), ROW('2H', 67, 43400), ROW('2H', 70, 64200), ROW('2H', 73, 95000), ROW('2H', 77, 140600), ROW('2H', 81, 208100), ROW('2H', 88, 307900),
 ROW('Main', 60, 26650), ROW('Main', 64, 39450), ROW('Main', 67, 39450), ROW('Main', 70, 58350), ROW('Main', 73, 86400), ROW('Main', 77, 127850), ROW('Main', 81, 189250), ROW('Main', 88, 280050),
 ROW('Off', 60, 20000), ROW('Off', 64, 29600), ROW('Off', 67, 29600), ROW('Off', 70, 43800), ROW('Off', 73, 64850), ROW('Off', 77, 95950), ROW('Off', 81, 142000), ROW('Off', 88, 210200),
 ROW('Ring', 60, 24450), ROW('Ring', 64, 36200), ROW('Ring', 67, 36200), ROW('Ring', 70, 53550), ROW('Ring', 73, 79250), ROW('Ring', 77, 117300), ROW('Ring', 81, 173600), ROW('Ring', 88, 256950),
